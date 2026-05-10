@@ -1,0 +1,24 @@
+services:
+  redis:
+    image: redis:alpine
+    container_name: debate_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  debate-app:
+    build: .
+    container_name: debate_app
+    depends_on:
+      - redis
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./:/app  
+      - ./debate_vectors:/app/debate_vectors
+    command: tail -f /dev/null
+
+volumes:
+  redis_data:

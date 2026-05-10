@@ -2,10 +2,9 @@ import operator
 from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
-from langchain_ollama import ChatOllama
 from langgraph.graph import START, END, StateGraph
 
-import configurations.small_local_llm as config
+from configurations.config_manager import config, get_chat_model
 from tools import create_evidence_tool
 from research import research_app
 
@@ -17,104 +16,108 @@ class DebateState(TypedDict):
     max_turns: int
 
 
-def _execute_researcher(
-    stance: str,
-    agent_id: str, 
-    motion: str, 
-    max_tries=2,
-    max_knowledge_base=2,
-) -> None:
-    llm = ChatOllama(
-        model=config.MODEL,
-        temperature=config.TEMPERATURE,
-        num_ctx=8192,
-    )
-
-    prompt = config.RESEARCH_INIT_PROMPT.format(
+def _build_research_prompt(stance: str, motion: str) -> str:
+    template = config.get("prompts.research_init")
+    max_tries = config.get("search.max_tries")
+    return template.format(
         motion=motion,
         stance=stance,
         max_tries=max_tries,
     )
-    messages = [HumanMessage(content=prompt)]
+
+
+def _run_search_attempt(
+    agent_id: str,
+    messages: list[Any],
+    attempt: int,
+) -> tuple[str, int]:
+    llm = get_chat_model()
+    response = llm.invoke(messages)
+    query = str(response.content).strip().strip("'\"")
+    print(f"Agent {agent_id}, searching attempt {attempt}: {query}")
+
+    search_result = research_app.invoke({
+        "query": query,
+        "agent_id": agent_id,
+        "search_count": 0,
+        "raw_papers": [],
+        "approved_papers": [],
+    })
+
+    approved = len(search_result.get("approved_papers", []))
+    return query, approved
+
+
+def _run_research_loop(
+    agent_id: str,
+    messages: list[Any],
+) -> None:
+    max_tries = config.get("search.max_tries")
+    max_knowledge_base = config.get("search.max_knowledge_base")
     total_approved = 0
 
     for attempt in range(max_tries):
-        response = llm.invoke(messages)
-        query = response.content.strip().strip("'\"")
-        print(f"Agent {agent_id}, searching attempt {attempt}: {query}")
+        query, approved = _run_search_attempt(agent_id, messages, attempt)
         
-        search_result = research_app.invoke({
-            "query": query,
-            "agent_id": agent_id,
-            "search_count": 0,
-            "raw_papers": [],
-            "approved_papers": [],
-        })
-
-        approved = len(search_result.get("approved_papers", []))
         total_approved += approved
         if total_approved >= max_knowledge_base:
             break
         
         messages.append(AIMessage(content=query))
         
-        next_prompt = config.RESEARCH_MIDDLE_PROMPT.format(
+        next_prompt = config.get("prompts.research_middle").format(
             approved=approved,
             attempts_left=max_tries - attempt - 1,
         )
         messages.append(HumanMessage(content=next_prompt))
 
 
+def _execute_researcher(stance: str, agent_id: str, motion: str) -> None:
+    prompt = _build_research_prompt(stance, motion)
+    messages = [HumanMessage(content=prompt)]
+    _run_research_loop(agent_id, messages)
+
+
 def prepare_debators(state: DebateState) -> dict[str, Any]:
     motion = state.get("motion", "")
-    prep_tries = 3
+    pro = config.get("agents.pro_stance")
+    against = config.get("agents.against_stance")
     
-    _execute_researcher(
-        "PRO", 
-        "PRO", 
-        motion, 
-        prep_tries
-    )
-    
-    _execute_researcher(
-        "AGAINST", 
-        "AGAINST", 
-        motion, 
-        prep_tries
-    )
+    _execute_researcher(pro, pro, motion)
+    _execute_researcher(against, against, motion)
 
     return {}
 
 
-def _execute_debator(
+def _build_debator_messages(
     stance: str,
-    agent_id: str,
     state: DebateState,
-) -> str:
-    llm = ChatOllama(
-        model=config.MODEL,
-        temperature=config.TEMPERATURE,
-        num_ctx=8192,
-    )
-    evidence_tool = create_evidence_tool(agent_id)
-    llm_with_tools = llm.bind_tools([evidence_tool])
-
+) -> list[Any]:
     history = "\n".join(state.get("transcript", []))
 
     if not history:
-        content = config.OPENING_PROMPT.format(
+        content = config.get("prompts.opening").format(
             motion=state["motion"],
             stance=stance,
         )
     else:
-        content = config.DEBATOR_PROMPT.format(
+        content = config.get("prompts.debator").format(
             motion=state["motion"], 
             stance=stance, 
             transcript=history,
         )
 
-    messages = [HumanMessage(content=content)]
-    response = llm_with_tools.invoke(messages)
+    return [HumanMessage(content=content)]
+
+
+def _run_tool_loop(
+    stance: str,
+    agent_id: str,
+    messages: list[Any],
+) -> str:
+    llm = get_chat_model()
+    evidence_tool = create_evidence_tool(agent_id)
+    llm_with_tools = llm.bind_tools([evidence_tool])
 
     while True:
         response = llm_with_tools.invoke(messages)
@@ -131,13 +134,24 @@ def _execute_debator(
             ))
 
 
+def _execute_debator(
+    stance: str,
+    agent_id: str,
+    state: DebateState,
+) -> str:
+    messages = _build_debator_messages(stance, state)
+    return _run_tool_loop(stance, agent_id, messages)
+
+
 def pro_node(state: DebateState) -> dict[str, Any]:
-    entry = _execute_debator("PRO", "PRO", state)
+    pro = config.get("agents.pro_stance")
+    entry = _execute_debator(pro, pro, state)
     return {"transcript": [entry]}
 
 
 def against_node(state: DebateState) -> dict[str, Any]:
-    entry = _execute_debator("AGAINST", "AGAINST", state)
+    against = config.get("agents.against_stance")
+    entry = _execute_debator(against, against, state)
     return {
         "transcript": [entry],
         "turn_count": state.get("turn_count", 0) + 1
@@ -145,16 +159,16 @@ def against_node(state: DebateState) -> dict[str, Any]:
 
 
 def route_debate(state: DebateState) -> str:
-    if state["turn_count"] >= state["max_turns"]:
+    if state.get("turn_count", 0) >= state.get("max_turns", 3):
         return "judge_node"
     return "pro_node"
 
 
 def judge_node(state: DebateState) -> dict[str, Any]:
-    llm = ChatOllama(model=config.MODEL, temperature=config.TEMPERATURE)
+    llm = get_chat_model()
     history = "\n".join(state.get("transcript", []))
 
-    prompt = config.JUDGE_PROMPT.format(
+    prompt = config.get("prompts.judge").format(
         motion=state["motion"], 
         transcript=history
     )

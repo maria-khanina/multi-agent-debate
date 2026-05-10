@@ -1,15 +1,13 @@
-from typing import Any, NotRequired, Literal, TypedDict
+import io
+import requests
+from typing import NotRequired, Literal, TypedDict
 
-import chromadb
-from chromadb.api.models.Collection import Collection
-import ollama
 from langgraph.graph import END, StateGraph
+from langchain_core.documents import Document
+from pypdf import PdfReader
 
 from openalex_search import search_papers, RawPaper
-import configurations.small_local_llm as config
-
-
-SEARCH_BATCH_SIZE = 2
+from configurations.config_manager import config, get_chat_model, get_retriever
 
 
 class ApprovedPaper(TypedDict):
@@ -30,121 +28,115 @@ class ResearcherState(TypedDict):
     search_count: NotRequired[int]
 
 
-def get_embedding(text: str) -> list[float]:
-    if not text:
-        return []
-    response = ollama.embeddings(
-        model="nomic-embed-text",
-        prompt=text[:8000],
-    )
-    return response.get("embedding", [])
+class SearchResult(TypedDict):
+    raw_papers: list[RawPaper]
+    search_count: int
 
 
-def search_node(state: ResearcherState) -> dict[str, Any]:
+def search_node(state: ResearcherState) -> SearchResult:
     query = state.get("query", "")
     count = state.get("search_count", 0)
+    papers_per_search = config.get("search.papers_per_search")
 
-    new_papers = search_papers(query, SEARCH_BATCH_SIZE)
+    new_papers = search_papers(query, papers_per_search)
 
     return {"raw_papers": new_papers, "search_count": count + 1}
 
 
-def call_llm(prompt: str) -> str:
-    response = ollama.chat(
-        model=config.MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        options={
-            "num_predict": config.MAX_TOKENS_PER_TURN,
-            "temperature": config.TEMPERATURE,
-        }
+def _build_approval_prompt(paper: RawPaper) -> str:
+    affiliations_str = ", ".join(paper.get("affiliations", []))
+    prompt_template = config.get("prompts.paper_approver_prompt")
+    limit = config.get("embedding.truncation_length")
+    
+    return prompt_template.format(
+        title=paper.get("title"),
+        year=paper.get("year"),
+        citations=paper.get("citations"),
+        affiliations=affiliations_str,
+        abstract=paper.get("abstract", "")[:limit],
     )
-    return response['message']['content'].strip()
 
 
 def approve_paper(paper: RawPaper) -> bool:
     if paper is None:
         return False
 
-    affiliations_str = ", ".join(paper.get("affiliations", []))
-
-    prompt = f"""Evaluate this academic paper.
-        Title: {paper.get("title")}
-        Year: {paper.get("year")}
-        Citations: {paper.get("citations")}
-        Affiliations: {affiliations_str}
-        Abstract: {paper.get("abstract")[:8000]}
-
-        Decision Criteria from most necessary to optional:
-        1. Impact: Is the citation count sufficient?
-        (Take into account field and publication year,
-        but never approve a paper with less than 3 citations).
-        2. Methodological Rigor: Does the abstract cite specific,
-         verifiable findings (e.g., statistical significance, 
-         clear qualitative methodologies)?
-        3. Reject papers that rely solely on vague adjectives 
-        without detailing the data or method.
-        4. Trust: Are the institutions recognized?
-
-        Output EXACTLY ONE WORD: PASS if approved, FAIL if rejected.
-    """
-
-    response = call_llm(prompt)
-    print(paper["title"], paper["citations"], response)
+    prompt = _build_approval_prompt(paper)
+    llm = get_chat_model()
+    response = llm.invoke(prompt)
+    content = str(response.content)
+    print(paper["title"], paper["citations"], content)
     
-    return "PASS" in response.upper()
+    pass_word = config.get("prompts.paper_approver_pass_word")
+    return pass_word in content.upper()
 
 
-def _traverse_raw_papers(
-    raw_papers: list[RawPaper],
-    approved_papers: list[ApprovedPaper],
-    collection: Collection,
+def extract_text_from_pdf(url: str) -> str:
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        content_type = response.headers.get("Content-Type", "")
+        if "application/pdf" not in content_type:
+            return ""
+        pdf_file = io.BytesIO(response.content)
+        reader = PdfReader(pdf_file)
+        text = ""
+        for page in reader.pages:
+            extracted = page.extract_text()
+            if extracted:
+                text += extracted + "\n"
+        return text
+    except Exception:
+        return ""
+
+
+def _process_and_store_paper(
+    paper_data: RawPaper,
+    agent_id: str,
 ) -> None:
-    for paper in raw_papers:
-        if approve_paper(paper):
-            content = paper.get("abstract", "")
-            vector = get_embedding(content)
+    title = str(paper_data.get("title", ""))
+    pdf_url = paper_data.get("pdf_url")
+    abstract = str(paper_data.get("abstract", ""))
+    
+    full_text = ""
+    if pdf_url:
+        full_text = extract_text_from_pdf(pdf_url)
+        
+    content = full_text if full_text.strip() else abstract
+    if not content.strip():
+        return
+        
+    doc = Document(
+        page_content=content,
+        metadata={
+            "title": title,
+            "source": "pdf" if full_text.strip() else "abstract"
+        }
+    )
+    retriever = get_retriever(agent_id)
+    retriever.add_documents([doc])
 
-            paper_data = dict(paper)
-            paper_data["abstract_embedding"] = vector
 
-            approved_papers.append(paper_data)
-            
-            title = paper_data.get("title", "")
-            collection.upsert(
-                documents=[content],
-                metadatas=[{"title": title}],
-                embeddings=[vector],
-                ids=[title],
-            )
-
-
-def evaluate_node(
-        state: ResearcherState,
+def approve_node(
+    state: ResearcherState,
 ) -> dict[Literal["approved_papers"], list[ApprovedPaper]]:
     raw_papers = state.get("raw_papers", [])
     approved_papers = state.get("approved_papers", [])
     agent_id = state.get("agent_id", "default")
-
-    client = chromadb.PersistentClient(path="./debate_vectors")
-    collection = client.get_or_create_collection(name=f"agent_{agent_id}")
-
-    _traverse_raw_papers(
-        raw_papers, 
-        approved_papers, 
-        collection,
-    )
-
+    
+    for paper in raw_papers:
+        if approve_paper(paper):
+            approved_papers.append(dict(paper))
+            _process_and_store_paper(paper, agent_id)
+            
     return {"approved_papers": approved_papers}
 
 
 research_workflow = StateGraph(ResearcherState)
-
 research_workflow.add_node("search_node", search_node)
-research_workflow.add_node("evaluate_node", evaluate_node)
-
+research_workflow.add_node("approve_node", approve_node)
 research_workflow.set_entry_point("search_node")
-research_workflow.add_edge("search_node", "evaluate_node")
-
-research_workflow.add_edge("evaluate_node", END)
+research_workflow.add_edge("search_node", "approve_node")
+research_workflow.add_edge("approve_node", END)
 
 research_app = research_workflow.compile()

@@ -1,65 +1,20 @@
-from typing import Any, NotRequired, TypedDict
+from typing import TypedDict
 
-import chromadb
-from chromadb.api.models.Collection import Collection
 from langchain_core.tools import tool, BaseTool
 
-from research import get_embedding
-
-
-MetadataValue = str | int | float | bool
-
-
-class ChromaQueryResult(TypedDict):
-    ids: list[list[str]]
-    distances: NotRequired[list[list[float]] | None]
-    metadatas: NotRequired[list[list[dict[str, MetadataValue]]] | None]
-    embeddings: NotRequired[list[list[list[float]]] | None]
-    documents: NotRequired[list[list[str]] | None]
-    uris: NotRequired[list[list[str]] | None]
-    data: NotRequired[list[list[str]] | None]
+from configurations.config_manager import get_retriever
 
 
 class Evidence(TypedDict):
     title: str
     content: str
-
-
-def _get_agent_collection(agent_id: str) -> Collection:
-    client = chromadb.PersistentClient(
-        path="./debate_vectors"
-    )
-    return client.get_or_create_collection(
-        name=f"agent_{agent_id}"
-    )
-
-
-def _format_evidence(matches: ChromaQueryResult) -> list[Evidence]:
-    if matches is None:
-        return []
-
-    evidence = []
-    contents = matches.get("documents", [[]])
-    details = matches.get("metadatas", [[]])
-
-    if contents and contents[0]:
-        for i in range(len(contents[0])):
-            evidence.append({
-                "title": details[0][i].get("title", ""),
-                "content": contents[0][i],
-            })
-    print(evidence)
-            
-    return evidence
+    source: str
 
 
 def create_evidence_tool(agent_id: str) -> BaseTool:
 
     @tool
-    def find_evidence(
-        key_words: str,
-        chunks_num=3,
-    ) -> list[Evidence]:
+    def find_evidence(key_words: str) -> list[Evidence]:
         """
         Search the private database for peer-reviewed paper abstracts.
         
@@ -69,22 +24,22 @@ def create_evidence_tool(agent_id: str) -> BaseTool:
         Args:
             key_words: A string of descriptive terms or a short phrase 
                 representing the search intent.
-            chunks_num: The number of relevant abstracts to retrieve. 
-                Default is 3.
-                
+
         Returns:
             A list of dictionaries, each containing the 'title' and 
             'abstract' of a relevant scientific paper.
         """
-        print(f"-------Agent {agent_id} looks for evidence: {key_words}")
-        collection = _get_agent_collection(agent_id)
-        query_vector = get_embedding(key_words)
+        retriever = get_retriever(agent_id)
+        retrieved_docs = retriever.invoke(key_words)
 
-        raw_matches = collection.query(
-            query_embeddings=[query_vector],
-            n_results=chunks_num,
-        )
-
-        return _format_evidence(raw_matches)
+        evidence_list = []
+        for doc in retrieved_docs:
+            evidence_list.append({
+                "title": doc.metadata.get("title", "Unknown"),
+                "source": doc.metadata.get("source", "Unknown"),
+                "content": doc.page_content,
+            })
+            
+        return evidence_list
 
     return find_evidence

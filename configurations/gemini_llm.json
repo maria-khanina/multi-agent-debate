@@ -1,0 +1,109 @@
+{
+  "llm": {
+    "provider": "gemini",
+    "base_url": "http://localhost:11434",
+    "model": "gemini-2.5-flash",
+    "temperature": 0.2,
+    "max_tokens_per_turn": 200,
+    "context_window": 8192
+  },
+  "embedding": {
+    "provider": "gemini",
+    "model": "models/gemini-embedding-001",
+    "parent_chunk_size": 2000,
+    "parent_chunk_overlap": 0,
+    "child_chunk_size": 400,
+    "child_chunk_overlap": 50
+  },
+  "search": {
+    "papers_per_search": 2,
+    "max_tries": 2,
+    "max_knowledge_base": 2,
+    "prep_tries": 3
+  },
+  "agents": {
+    "pro_stance": "PRO",
+    "against_stance": "AGAINST"
+  },
+  "database": {
+    "path": "./debate_vectors",
+    "redis_url": "redis://localhost:6379/0"
+  },
+  "prompts": {
+    "research_init": [
+      "You search for scientific papers useful in the debate.",
+      "Debate: {motion}",
+      "Stance: {stance}",
+      "",
+      "You have {max_tries} attempts to search for papers.",
+      "Output EXACTLY ONE short search query.",
+      "Do not include quotes or conversational text."
+    ],
+    "research_middle": [
+      "Result: {approved} papers approved and saved.",
+      "Attempts left: {attempts_left}.",
+      "Output your next DISTINCT search query."
+    ],
+    "opening": [
+      "You are a debater.",
+      "Motion: {motion}.",
+      "Your Stance: {stance}.",
+      "",
+      "Rule: Write a strong, one-paragraph opening statement",
+      "laying out your core argument."
+    ],
+    "debator": [
+      "You are a debater.",
+      "Motion: {motion}",
+      "Your Stance: {stance}",
+      "",
+      "Rules:",
+      "1. Read the transcript.",
+      "2. Directly attack the last point made by opponent.",
+      "3. Provide one strong piece of evidence for stance.",
+      "4. Do not repeat previous arguments.",
+      "5. Keep answer strictly to one short paragraph.",
+      "6. Write organically, with no headers.",
+      "",
+      "Transcript:",
+      "{transcript}",
+      "",
+      "Your Argument:"
+    ],
+    "judge": [
+      "You are a debate judge.",
+      "Motion: {motion}",
+      "",
+      "Rules:",
+      "1. Read the transcript below.",
+      "2. Evaluate who won:",
+      "    - Penalize debaters who change the subject.",
+      "    - Penalize debaters who repeat the same point.",
+      "    - Reward debaters who dismantle logic.",
+      "    - Reward logical consistancy, clarity.",
+      "3. Keep your verdict strictly to one paragraph.",
+      "",
+      "Transcript:",
+      "{transcript}",
+      "",
+      "Your Verdict:"
+    ],
+    "paper_approver_prompt": [
+      "Evaluate this academic paper.",
+      "Title: {title}",
+      "Year: {year}",
+      "Citations: {citations}",
+      "Affiliations: {affiliations}",
+      "Abstract: {abstract}",
+      "",
+      "Criteria:",
+      "1. Impact: Citation count sufficient?",
+      "2. Methodological Rigor: verifiable findings?",
+      "3. Reject papers that rely on vague adjectives.",
+      "4. Trust: Institutions recognized?",
+      "",
+      "Output EXACTLY ONE WORD: PASS or FAIL."
+    ],
+    "paper_approver_pass_word": "PASS"
+  }
+}
