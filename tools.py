@@ -1,5 +1,6 @@
 from typing import TypedDict
 
+from langchain_core.messages import AIMessage
 from langchain_core.tools import tool, BaseTool
 
 from configurations.config_manager import get_retriever
@@ -43,3 +44,17 @@ def create_evidence_tool(agent_id: str) -> BaseTool:
         return evidence_list
 
     return find_evidence
+
+
+def extract_llm_response(
+        response: AIMessage,
+) -> str:
+    if isinstance(response.content, list):
+        raw_query = ""
+        for block in response.content:
+            if block.get("type", None) == "text":
+                raw_query = block.get("text", "")
+                break
+    else:
+        raw_query = response.content
+    return str(raw_query).strip().strip("'\"")

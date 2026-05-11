@@ -105,7 +105,7 @@ def search_papers(query: str, top_num=3) -> list[RawPaper]:
             "search": query,
             "per-page": top_num,
             "sort": "relevance_score:desc",
-            "mailto": os.getenv("EMAIL", "")
+            "mailto": os.getenv("OPENALEX_EMAIL", "")
         }
 
         response = requests.get(url, params=params, timeout=10)

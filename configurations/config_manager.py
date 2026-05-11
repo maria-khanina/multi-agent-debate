@@ -56,21 +56,20 @@ def _decode_doc(doc_bytes: bytes) -> Document:
     )
 
 
-@lru_cache(maxsize=1)
-def get_chat_model() -> BaseChatModel:
-    provider = config.get("llm.provider", "ollama")
+@lru_cache(maxsize=None)
+def get_chat_model(role: str) -> BaseChatModel:
+    provider = config.get(f"models.{role}.provider", "ollama")
     if provider == "ollama":
-        base_url = os.environ.get("OLLAMA_HOST") or config.get("llm.base_url")
         return ChatOllama(
-            base_url=base_url,
-            model=config.get("llm.model"),
-            temperature=config.get("llm.temperature"),
-            num_ctx=config.get("llm.context_window"),
+            base_url=os.environ.get("OLLAMA_HOST"),
+            model=config.get(f"models.{role}.llm"),
+            temperature=config.get(f"models.{role}.temperature"),
+            num_ctx=config.get(f"models.{role}.context_window"),
         )
     elif provider == "gemini":
         return ChatGoogleGenerativeAI(
-            model=config.get("llm.model"),
-            temperature=config.get("llm.temperature"),
+            model=config.get(f"models.{role}.llm"),
+            temperature=config.get(f"models.{role}.temperature"),
         )
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
@@ -79,11 +78,8 @@ def get_chat_model() -> BaseChatModel:
 def get_embeddings_model() -> Embeddings:
     provider = config.get("embedding.provider", "ollama")
     if provider == "ollama":
-        base_url = os.environ.get("OLLAMA_HOST") or config.get(
-            "llm.base_url"
-        )
         return OllamaEmbeddings(
-            base_url=base_url,
+            base_url=os.environ.get("OLLAMA_HOST"),
             model=config.get("embedding.model"),
         )
     elif provider == "gemini":

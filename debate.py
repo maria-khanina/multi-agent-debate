@@ -1,11 +1,12 @@
 import operator
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
-from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
+from langchain_core.messages import HumanMessage, ToolMessage, \
+    AIMessage, BaseMessage
 from langgraph.graph import START, END, StateGraph
 
 from configurations.config_manager import config, get_chat_model
-from tools import create_evidence_tool
+from tools import create_evidence_tool, extract_llm_response
 from research import research_app
 
 
@@ -16,6 +17,15 @@ class DebateState(TypedDict):
     max_turns: int
 
 
+class ProJudgeResult(TypedDict):
+    transcript: list[str]
+
+
+class AgainstResult(TypedDict):
+    transcript: list[str]
+    turn_count: int
+
+
 def _build_research_prompt(stance: str, motion: str) -> str:
     template = config.get("prompts.research_init")
     max_tries = config.get("search.max_tries")
@@ -24,22 +34,21 @@ def _build_research_prompt(stance: str, motion: str) -> str:
         stance=stance,
         max_tries=max_tries,
     )
-
+  
 
 def _run_search_attempt(
     agent_id: str,
-    messages: list[Any],
+    messages: list[BaseMessage],
     attempt: int,
 ) -> tuple[str, int]:
-    llm = get_chat_model()
-    response = llm.invoke(messages)
-    query = str(response.content).strip().strip("'\"")
+    llm = get_chat_model("researcher")
+    raw_response = llm.invoke(messages)
+    query = extract_llm_response(raw_response)
     print(f"Agent {agent_id}, searching attempt {attempt}: {query}")
 
     search_result = research_app.invoke({
         "query": query,
         "agent_id": agent_id,
-        "search_count": 0,
         "raw_papers": [],
         "approved_papers": [],
     })
@@ -50,7 +59,7 @@ def _run_search_attempt(
 
 def _run_research_loop(
     agent_id: str,
-    messages: list[Any],
+    messages: list[BaseMessage],
 ) -> None:
     max_tries = config.get("search.max_tries")
     max_knowledge_base = config.get("search.max_knowledge_base")
@@ -92,7 +101,7 @@ def prepare_debators(state: DebateState) -> dict[str, Any]:
 def _build_debator_messages(
     stance: str,
     state: DebateState,
-) -> list[Any]:
+) -> list[list[BaseMessage]]:
     history = "\n".join(state.get("transcript", []))
 
     if not history:
@@ -113,20 +122,21 @@ def _build_debator_messages(
 def _run_tool_loop(
     stance: str,
     agent_id: str,
-    messages: list[Any],
+    messages: list[BaseMessage],
 ) -> str:
-    llm = get_chat_model()
+    llm = get_chat_model("debater")
     evidence_tool = create_evidence_tool(agent_id)
     llm_with_tools = llm.bind_tools([evidence_tool])
 
     while True:
-        response = llm_with_tools.invoke(messages)
-        messages.append(response)
+        raw_response = llm_with_tools.invoke(messages)
+        messages.append(raw_response)
+        output_response = extract_llm_response(raw_response)
 
-        if not response.tool_calls:
-            return f"{stance}: {response.content}"
+        if not raw_response.tool_calls:
+            return f"{stance}: {output_response}"
 
-        for tool_call in response.tool_calls:
+        for tool_call in raw_response.tool_calls:
             result = evidence_tool.invoke(tool_call)
             messages.append(ToolMessage(
                 content=str(result), 
@@ -143,13 +153,16 @@ def _execute_debator(
     return _run_tool_loop(stance, agent_id, messages)
 
 
-def pro_node(state: DebateState) -> dict[str, Any]:
+
+
+
+def pro_node(state: DebateState) -> ProJudgeResult:
     pro = config.get("agents.pro_stance")
     entry = _execute_debator(pro, pro, state)
     return {"transcript": [entry]}
 
 
-def against_node(state: DebateState) -> dict[str, Any]:
+def against_node(state: DebateState) -> AgainstResult:
     against = config.get("agents.against_stance")
     entry = _execute_debator(against, against, state)
     return {
@@ -158,14 +171,14 @@ def against_node(state: DebateState) -> dict[str, Any]:
     }
 
 
-def route_debate(state: DebateState) -> str:
+def route_debate(state: DebateState) -> Literal["pro_node", "judge_node"]:
     if state.get("turn_count", 0) >= state.get("max_turns", 3):
         return "judge_node"
     return "pro_node"
 
 
-def judge_node(state: DebateState) -> dict[str, Any]:
-    llm = get_chat_model()
+def judge_node(state: DebateState) -> ProJudgeResult:
+    llm = get_chat_model("judge")
     history = "\n".join(state.get("transcript", []))
 
     prompt = config.get("prompts.judge").format(
@@ -173,8 +186,9 @@ def judge_node(state: DebateState) -> dict[str, Any]:
         transcript=history
     )
     
-    response = llm.invoke([HumanMessage(content=prompt)])
-    return {"transcript": [f"\nJUDGE'S VERDICT:\n{response.content}"]}
+    raw_response = llm.invoke([HumanMessage(content=prompt)])
+    judge_response = extract_llm_response(raw_response)
+    return {"transcript": [f"\nJUDGE'S VERDICT:\n{judge_response}"]}
 
 
 builder = StateGraph(DebateState)

@@ -15,6 +15,7 @@ services:
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_HOST=http://ollama_service:11434
     volumes:
       - ./:/app  
       - ./debate_vectors:/app/debate_vectors

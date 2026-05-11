@@ -1,25 +1,39 @@
 {
-  "llm": {
-    "provider": "gemini",
-    "base_url": "http://ollama_service:11434", 
-    "model": "models/gemma-3-27b-it",
-    "temperature": 0.2,
-    "max_tokens_per_turn": 200,
-    "context_window": 8192,
-    "truncation_length": 8000
+  "models": {
+    "researcher": {
+      "provider": "gemini",
+      "llm": "models/gemini-2.5-flash-lite",
+      "temperature": 0.0
+    },
+    "approver": {
+      "provider": "gemini",
+      "llm": "models/gemini-3.1-flash-lite",
+      "temperature": 0.0
+    },
+    "debater": {
+      "provider": "gemini",
+      "llm": "models/gemma-4-26b-a4b-it",
+      "temperature": 0.4
+    },
+    "judge": {
+      "provider": "gemini",
+      "llm": "models/gemma-4-31b-it",
+      "temperature": 0.0
+    }
   },
   "embedding": {
     "provider": "ollama",
     "model": "nomic-embed-text",
+    "truncation_length": 8000,
     "parent_chunk_size": 2000,
     "parent_chunk_overlap": 0,
     "child_chunk_size": 400,
     "child_chunk_overlap": 50
   },
   "search": {
-    "papers_per_search": 1,
-    "max_tries": 1,
-    "max_knowledge_base": 1
+    "papers_per_search": 3,
+    "max_tries": 3,
+    "max_knowledge_base": 2
   },
   "agents": {
     "pro_stance": "PRO",
@@ -31,10 +45,9 @@
   },
   "prompts": {
     "research_init": [
-      "You search for scientific papers useful in the debate.",
+      "You search for scientific papers that will help to win in the debate.",
       "Debate: {motion}",
       "Stance: {stance}",
-      "",
       "You have {max_tries} attempts to search for papers.",
       "Output EXACTLY ONE short search query.",
       "Do not include quotes or conversational text."
@@ -48,7 +61,6 @@
       "You are a debater.",
       "Motion: {motion}.",
       "Your Stance: {stance}.",
-      "",
       "Rule: Write a strong, one-paragraph opening statement",
       "laying out your core argument."
     ],
@@ -56,7 +68,6 @@
       "You are a debater.",
       "Motion: {motion}",
       "Your Stance: {stance}",
-      "",
       "Rules:",
       "1. Read the transcript.",
       "2. Directly attack the last point made by opponent.",
