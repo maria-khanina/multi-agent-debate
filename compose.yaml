@@ -19,6 +19,15 @@ services:
       - ./:/app  
       - ./debate_vectors:/app/debate_vectors
     command: tail -f /dev/null
+  
+  ollama:
+    image: alpine/ollama:latest
+    container_name: ollama_service
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
 
 volumes:
   redis_data:
+  ollama_models:

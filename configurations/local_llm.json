@@ -5,18 +5,22 @@
     "model": "qwen2.5:7b",
     "temperature": 0.2,
     "max_tokens_per_turn": 200,
-    "context_window": 8192
+    "context_window": 8192,
+    "truncation_length": 8000
   },
   "embedding": {
     "provider": "ollama",
     "model": "nomic-embed-text",
-    "truncation_length": 8000
+    "truncation_length": 8000,
+    "parent_chunk_size": 2000,
+    "parent_chunk_overlap": 0,
+    "child_chunk_size": 400,
+    "child_chunk_overlap": 50
   },
   "search": {
     "papers_per_search": 2,
     "max_tries": 2,
-    "max_knowledge_base": 2,
-    "prep_tries": 3
+    "max_knowledge_base": 2
   },
   "agents": {
     "pro_stance": "PRO",
