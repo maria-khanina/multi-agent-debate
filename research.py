@@ -43,17 +43,29 @@ def search_node(state: ResearcherState) -> SearchResult:
     return {"raw_papers": new_papers, "search_count": count + 1}
 
 
+def _cut_middle(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+        
+    half_limit = limit // 2
+    head = text[:half_limit]
+    tail = text[-half_limit:]
+    
+    return f"{head}\n\n...\n\n{tail}"
+
+
 def _build_approval_prompt(paper: RawPaper) -> str:
     affiliations_str = ", ".join(paper.get("affiliations", []))
     prompt_template = config.get("prompts.paper_approver_prompt")
-    limit = config.get("embedding.truncation_length")
+    limit = config.get("llm.truncation_length")
+    abstract = paper.get("abstract", "")
     
     return prompt_template.format(
         title=paper.get("title"),
         year=paper.get("year"),
         citations=paper.get("citations"),
         affiliations=affiliations_str,
-        abstract=paper.get("abstract", "")[:limit],
+        abstract=_cut_middle(abstract, limit),
     )
 
 
