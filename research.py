@@ -8,6 +8,7 @@ from pypdf import PdfReader
 
 from openalex_search import search_papers, RawPaper
 from configurations.config_manager import config, get_chat_model, get_retriever
+from tools import extract_llm_response
 
 
 class ApprovedPaper(TypedDict):
@@ -25,22 +26,19 @@ class ResearcherState(TypedDict):
     agent_id: str
     raw_papers: NotRequired[list[RawPaper]]
     approved_papers: NotRequired[list[ApprovedPaper]]
-    search_count: NotRequired[int]
 
 
 class SearchResult(TypedDict):
     raw_papers: list[RawPaper]
-    search_count: int
 
 
 def search_node(state: ResearcherState) -> SearchResult:
     query = state.get("query", "")
-    count = state.get("search_count", 0)
     papers_per_search = config.get("search.papers_per_search")
 
     new_papers = search_papers(query, papers_per_search)
 
-    return {"raw_papers": new_papers, "search_count": count + 1}
+    return {"raw_papers": new_papers}
 
 
 def _cut_middle(text: str, limit: int) -> str:
@@ -57,7 +55,7 @@ def _cut_middle(text: str, limit: int) -> str:
 def _build_approval_prompt(paper: RawPaper) -> str:
     affiliations_str = ", ".join(paper.get("affiliations", []))
     prompt_template = config.get("prompts.paper_approver_prompt")
-    limit = config.get("llm.truncation_length")
+    limit = config.get("embedding.truncation_length")
     abstract = paper.get("abstract", "")
     
     return prompt_template.format(
@@ -74,13 +72,13 @@ def approve_paper(paper: RawPaper) -> bool:
         return False
 
     prompt = _build_approval_prompt(paper)
-    llm = get_chat_model()
-    response = llm.invoke(prompt)
-    content = str(response.content)
-    print(paper["title"], paper["citations"], content)
+    llm = get_chat_model("approver")
+    raw_response = llm.invoke(prompt)
+    verdict = extract_llm_response(raw_response)
+    print(paper["title"], paper["citations"], verdict)
     
     pass_word = config.get("prompts.paper_approver_pass_word")
-    return pass_word in content.upper()
+    return pass_word in verdict.upper()
 
 
 def extract_text_from_pdf(url: str) -> str:

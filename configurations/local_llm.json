@@ -1,12 +1,29 @@
 {
-  "llm": {
-    "provider": "ollama",
-    "base_url": "http://localhost:11434",
-    "model": "qwen2.5:7b",
-    "temperature": 0.2,
-    "max_tokens_per_turn": 200,
-    "context_window": 8192,
-    "truncation_length": 8000
+  "models": {
+    "researcher": {
+      "provider": "ollama",
+      "llm": "qwen2.5:7b",
+      "temperature": 0.0,
+      "context_window": 8192
+    },
+    "approver": {
+      "provider": "ollama",
+      "llm": "qwen2.5:7b",
+      "temperature": 0.0,
+      "context_window": 8192
+    },
+    "debater": {
+      "provider": "ollama",
+      "llm": "qwen2.5:7b",
+      "temperature": 0.0,
+      "context_window": 8192
+    },
+    "judge": {
+      "provider": "ollama",
+      "llm": "qwen2.5:7b",
+      "temperature": 0.0,
+      "context_window": 8192
+    }
   },
   "embedding": {
     "provider": "ollama",
