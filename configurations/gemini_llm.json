@@ -2,7 +2,7 @@
   "models": {
     "researcher": {
       "provider": "gemini",
-      "llm": "models/gemini-2.5-flash-lite",
+      "llm": "models/gemini-3.1-flash-lite",
       "temperature": 0.0
     },
     "approver": {
@@ -18,7 +18,8 @@
     "judge": {
       "provider": "gemini",
       "llm": "models/gemma-4-31b-it",
-      "temperature": 0.0
+      "temperature": 0.0,
+      "audit_chunk_limit": 5
     }
   },
   "embedding": {
@@ -50,49 +51,73 @@
       "Stance: {stance}",
       "You have {max_tries} attempts to search for papers.",
       "Output EXACTLY ONE short search query.",
-      "Do not include quotes or conversational text."
+      "CRITICAL: Use double quotes and logical around key phrases to force exact matching, use logical operators AND, OR.",
+      "(e.g., \"large language models\" AND \"context window\").",
+      "Do not include quotes or conversational text around the final output."
     ],
     "research_middle": [
-      "Result: {approved} papers approved and saved.",
       "Attempts left: {attempts_left}.",
+      "Titles of already saved papers: {approved_titles}",
       "Output your next DISTINCT search query."
     ],
     "opening": [
-      "You are a debater.",
+      "You are an expert debater.",
       "Motion: {motion}.",
       "Your Stance: {stance}.",
-      "Rule: Write a strong, one-paragraph opening statement",
-      "laying out your core argument."
+      "Task: Construct a sophisticated opening statement establishing a thesis.",
+      "Rules:",
+      "1. Formulate a compelling, logically sound argument.",
+      "2. Use the find_evidence tool to retrieve empirical data to support your point.",
+      "3. Cite the source you are taking your evidence from.",
+      "4. Keep the output to a single, dense paragraph."
     ],
     "debator": [
-      "You are a debater.",
+      "You are an expert debater.",
       "Motion: {motion}",
       "Your Stance: {stance}",
+      "Task: Analyze the transcript and formulate a rigorous counter-argument.",
       "Rules:",
-      "1. Read the transcript.",
-      "2. Directly attack the last point made by opponent.",
-      "3. Provide one strong piece of evidence for stance.",
-      "4. Do not repeat previous arguments.",
-      "5. Keep answer strictly to one short paragraph.",
-      "6. Write organically, with no headers.",
+      "1. Deconstruct the opponent's argument, targeting underlying assumptions.",
+      "2. Advance your own position logically; do not merely play defense.",
+      "3. Use find_evidence tool to support your own argument with empirical evidence.",
+      "4. Cite the source you are taking your evidence from.",
+      "5. Avoid repeating previously established points.",
+      "6. Output exactly one dense paragraph with no headers.",
       "",
       "Transcript:",
       "{transcript}",
       "",
       "Your Argument:"
     ],
+    "judge_consistency": [
+      "Analyze the claim against past transcript.",
+      "Identify strict logical contradictions.",
+      "Past Transcript:\n{history_str}\n\n",
+      "Current Claim:\n{validated_claim}"
+    ],
+    "judge_factcheck": [
+      "Evaluate the claim against the source text.",
+      "Classify as SUPPORTED, FABRICATED, or EXAGGERATED in verdict,",
+      "explain your choice in reasoning.",
+      "Source Text:\n{source_text}\n\n Claim:\n{claim}"
+    ],
     "judge": [
       "You are a debate judge.",
       "Motion: {motion}",
       "",
+      "PRO debator Available Sources:",
+      "{pro_sources}",
+      "",
+      "AGAINST debator Available Sources:",
+      "{against_sources}",
+      "",
       "Rules:",
       "1. Read the transcript below.",
-      "2. Evaluate who won:",
-      "    - Penalize debaters who change the subject.",
-      "    - Penalize debaters who repeat the same point.",
-      "    - Reward debaters who dismantle logic.",
-      "    - Reward logical consistancy, clarity.",
-      "3. Keep your verdict strictly to one paragraph.",
+      "2. You MUST use available tools to audit the debate.",
+      "3. Use check_logical_consistency for contradictions.",
+      "4. Use audit_cited_claim to verify evidence against the Exact Source Titles listed above.",
+      "5. Penalize debaters for fabricated claims and inconsistency.",
+      "6. Keep your verdict strictly to one paragraph.",
       "",
       "Transcript:",
       "{transcript}",
@@ -100,17 +125,18 @@
       "Your Verdict:"
     ],
     "paper_approver_prompt": [
-      "Evaluate this academic paper.",
+      "Evaluate this academic paper for use in debates in given motion.",
       "Title: {title}",
       "Year: {year}",
       "Citations: {citations}",
       "Affiliations: {affiliations}",
       "Abstract: {abstract}",
+      "Motion: {motion}",
       "",
-      "Criteria:",
-      "1. Impact: Citation count sufficient?",
-      "2. Methodological Rigor: verifiable findings?",
-      "3. Reject papers that rely on vague adjectives.",
+      "Criteria from the most to the least important:",
+      "1. Relevance: Is the topic relevant to concepts of the motion?",
+      "2. Impact: Citation count sufficient for the field, declared results?",
+      "3. Methodological Rigor: verifiable findings?",
       "4. Trust: Institutions recognized?",
       "",
       "Output EXACTLY ONE WORD: PASS or FAIL."
