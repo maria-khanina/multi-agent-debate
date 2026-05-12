@@ -22,7 +22,7 @@ services:
     command: tail -f /dev/null
   
   ollama:
-    image: alpine/ollama:latest
+    image: ollama/ollama:latest
     container_name: ollama_service
     ports:
       - "11434:11434"

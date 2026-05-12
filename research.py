@@ -6,30 +6,21 @@ from langgraph.graph import END, StateGraph
 from langchain_core.documents import Document
 from pypdf import PdfReader
 
-from openalex_search import search_papers, RawPaper
+from openalex_search import search_papers, SciencePaper
 from configurations.config_manager import config, get_chat_model, get_retriever
 from tools import extract_llm_response
 
 
-class ApprovedPaper(TypedDict):
-    title: str
-    year: int | None
-    citations: int
-    affiliations: list[str]
-    abstract: str
-    abstract_embedding: list[float]
-    pdf_url: str | None
-
-
 class ResearcherState(TypedDict):
+    motion: str
     query: str
     agent_id: str
-    raw_papers: NotRequired[list[RawPaper]]
-    approved_papers: NotRequired[list[ApprovedPaper]]
+    raw_papers: NotRequired[list[SciencePaper]]
+    approved_papers: NotRequired[list[SciencePaper]]
 
 
 class SearchResult(TypedDict):
-    raw_papers: list[RawPaper]
+    raw_papers: list[SciencePaper]
 
 
 def search_node(state: ResearcherState) -> SearchResult:
@@ -37,6 +28,7 @@ def search_node(state: ResearcherState) -> SearchResult:
     papers_per_search = config.get("search.papers_per_search")
 
     new_papers = search_papers(query, papers_per_search)
+    print(f"----Found {len(new_papers)} papers.------")
 
     return {"raw_papers": new_papers}
 
@@ -52,13 +44,14 @@ def _cut_middle(text: str, limit: int) -> str:
     return f"{head}\n\n...\n\n{tail}"
 
 
-def _build_approval_prompt(paper: RawPaper) -> str:
+def _build_approval_prompt(paper: SciencePaper, motion: str) -> str:
     affiliations_str = ", ".join(paper.get("affiliations", []))
     prompt_template = config.get("prompts.paper_approver_prompt")
     limit = config.get("embedding.truncation_length")
     abstract = paper.get("abstract", "")
     
     return prompt_template.format(
+        motion=motion,
         title=paper.get("title"),
         year=paper.get("year"),
         citations=paper.get("citations"),
@@ -67,15 +60,18 @@ def _build_approval_prompt(paper: RawPaper) -> str:
     )
 
 
-def approve_paper(paper: RawPaper) -> bool:
+def approve_paper(paper: SciencePaper, motion: str) -> bool:
     if paper is None:
         return False
 
-    prompt = _build_approval_prompt(paper)
+    prompt = _build_approval_prompt(paper, motion)
     llm = get_chat_model("approver")
     raw_response = llm.invoke(prompt)
     verdict = extract_llm_response(raw_response)
-    print(paper["title"], paper["citations"], verdict)
+    print(
+        f"---APPROVING:  {paper['title']}, "
+        f"{paper['citations']} citations: {verdict}"
+    )
     
     pass_word = config.get("prompts.paper_approver_pass_word")
     return pass_word in verdict.upper()
@@ -101,7 +97,7 @@ def extract_text_from_pdf(url: str) -> str:
 
 
 def _process_and_store_paper(
-    paper_data: RawPaper,
+    paper_data: SciencePaper,
     agent_id: str,
 ) -> None:
     title = str(paper_data.get("title", ""))
@@ -129,13 +125,13 @@ def _process_and_store_paper(
 
 def approve_node(
     state: ResearcherState,
-) -> dict[Literal["approved_papers"], list[ApprovedPaper]]:
+) -> dict[Literal["approved_papers"], list[SciencePaper]]:
     raw_papers = state.get("raw_papers", [])
     approved_papers = state.get("approved_papers", [])
     agent_id = state.get("agent_id", "default")
     
     for paper in raw_papers:
-        if approve_paper(paper):
+        if approve_paper(paper, state["motion"]):
             approved_papers.append(dict(paper))
             _process_and_store_paper(paper, agent_id)
             

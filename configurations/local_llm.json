@@ -22,7 +22,8 @@
       "provider": "ollama",
       "llm": "qwen2.5:7b",
       "temperature": 0.0,
-      "context_window": 8192
+      "context_window": 8192,
+      "audit_chunk_limit": 5
     }
   },
   "embedding": {
@@ -91,6 +92,18 @@
       "{transcript}",
       "",
       "Your Argument:"
+    ],
+    "judge_consistency": [
+      "Analyze the claim against past transcript.",
+      "Identify strict logical contradictions.",
+      "Past Transcript:\n{history_str}\n\n",
+      "Current Claim:\n{validated_claim}"
+    ],
+    "judge_factcheck": [
+      "Evaluate the claim against the source text.",
+      "Classify as SUPPORTED, FABRICATED, or EXAGGERATED in verdict,",
+      "explain your choice in reasoning.",
+      "Source Text:\n{source_text}\n\n Claim:\n{claim}"
     ],
     "judge": [
       "You are a debate judge.",

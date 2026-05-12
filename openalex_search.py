@@ -3,7 +3,7 @@ import requests
 from typing import Any, TypedDict
 
 
-class RawPaper(TypedDict):
+class SciencePaper(TypedDict):
     title: str
     year: int | None
     citations: int
@@ -65,7 +65,7 @@ def _extract_affiliations(
 
 def _wrap_paper(
         paper: dict[str, Any],
-        results: list[RawPaper],
+        results: list[SciencePaper],
 ) -> None:
     if paper.get('open_access') is None:
         return None
@@ -91,7 +91,7 @@ def _wrap_paper(
     })
 
 
-def search_papers(query: str, top_num=3) -> list[RawPaper]:
+def search_papers(query: str, top_num=3) -> list[SciencePaper]:
     """
     Search the OpenAlex database for scientific papers and metadata.
     Provide standard keywords as the query. Use double quotes for 
