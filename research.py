@@ -12,9 +12,10 @@ from tools import extract_llm_response
 
 
 class ResearcherState(TypedDict):
+    debate_id: str
     motion: str
     query: str
-    agent_id: str
+    agent_role: str
     raw_papers: NotRequired[list[SciencePaper]]
     approved_papers: NotRequired[list[SciencePaper]]
 
@@ -98,7 +99,8 @@ def extract_text_from_pdf(url: str) -> str:
 
 def _process_and_store_paper(
     paper_data: SciencePaper,
-    agent_id: str,
+    agent_role: str,
+    debate_id: str,
 ) -> None:
     title = str(paper_data.get("title", ""))
     pdf_url = paper_data.get("pdf_url")
@@ -109,9 +111,15 @@ def _process_and_store_paper(
         full_text = extract_text_from_pdf(pdf_url)
         
     content = full_text if full_text.strip() else abstract
+    if full_text.strip():
+        print(f"---Paper {title}: saved pdf of {len(content)} chars.")
+        content = full_text
+    else:
+        print(f"---Paper {title}: saved abstract of {len(content)} chars.")
+        content = abstract
     if not content.strip():
-        return
-        
+        return None
+
     doc = Document(
         page_content=content,
         metadata={
@@ -119,7 +127,7 @@ def _process_and_store_paper(
             "source": "pdf" if full_text.strip() else "abstract"
         }
     )
-    retriever = get_retriever(agent_id)
+    retriever = get_retriever(agent_role, debate_id)
     retriever.add_documents([doc])
 
 
@@ -128,12 +136,12 @@ def approve_node(
 ) -> dict[Literal["approved_papers"], list[SciencePaper]]:
     raw_papers = state.get("raw_papers", [])
     approved_papers = state.get("approved_papers", [])
-    agent_id = state.get("agent_id", "default")
+    agent_role = state.get("agent_role", "default")
     
     for paper in raw_papers:
         if approve_paper(paper, state["motion"]):
             approved_papers.append(dict(paper))
-            _process_and_store_paper(paper, agent_id)
+            _process_and_store_paper(paper, agent_role, state["debate_id"])
             
     return {"approved_papers": approved_papers}
 

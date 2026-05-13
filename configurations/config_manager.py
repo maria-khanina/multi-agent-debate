@@ -89,12 +89,12 @@ def get_embeddings_model() -> Embeddings:
     raise ValueError(f"Unsupported embedding provider: {provider}")
 
 
-def get_retriever(agent_id: str) -> ParentDocumentRetriever:
+def get_retriever(agent_role: str, debate_id: str) -> ParentDocumentRetriever:
     embedder = get_embeddings_model()
     db_path = config.get("database.path", "./debate_vectors")
     
     vectorstore = Chroma(
-        collection_name=f"agent_{agent_id}",
+        collection_name=f"debate_{debate_id}_agent_{agent_role}",
         embedding_function=embedder,
         persist_directory=db_path
     )
@@ -106,7 +106,7 @@ def get_retriever(agent_id: str) -> ParentDocumentRetriever:
     redis_client = redis.Redis.from_url(redis_url)
     underlying_store = RedisStore(
         client=redis_client,
-        namespace=f"docstore_{agent_id}"
+        namespace=f"docstore_{debate_id}_{agent_role}",
     )
     
     store = EncoderBackedStore(

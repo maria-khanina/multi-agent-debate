@@ -1,5 +1,6 @@
 import operator
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Literal, TypedDict
+import uuid
 
 from langchain_core.messages import HumanMessage, ToolMessage, \
     AIMessage, BaseMessage
@@ -8,12 +9,13 @@ from langchain_core.tools import BaseTool
 from langgraph.graph import START, END, StateGraph
 
 from configurations.config_manager import config, get_chat_model
-from tools import audit_cited_claim, create_evidence_tool, \
+from tools import create_audit_tool, create_evidence_tool, \
     extract_llm_response, create_consistency_tool
 from research import research_app, SciencePaper
 
 
 class DebateState(TypedDict):
+    debate_id: str
     motion: str
     transcript: Annotated[list[str], operator.add]
     turn_count: int
@@ -31,18 +33,19 @@ class AgainstResult(TypedDict):
     turn_count: int
 
 
-def _build_research_prompt(stance: str, motion: str) -> str:
+def _build_research_prompt(agent_role: str, motion: str) -> str:
     template = config.get("prompts.research_init")
     max_tries = config.get("search.max_tries")
     return template.format(
         motion=motion,
-        stance=stance,
+        stance=agent_role,
         max_tries=max_tries,
     )
 
 
 def _run_search_attempt(
-    agent_id: str,
+    debate_id: str,
+    agent_role: str,
     messages: list[BaseMessage],
     motion: str,
     current_approved: list[dict],
@@ -50,12 +53,13 @@ def _run_search_attempt(
     llm = get_chat_model("researcher")
     raw_response = llm.invoke(messages)
     query = extract_llm_response(raw_response)
-    print(f"-----Researcher {agent_id} Agent searchs for {query}-----")
+    print(f"-----Researcher {agent_role} Agent searchs for {query}-----")
 
     search_result = research_app.invoke({
+        "debate_id": debate_id,
         "motion": motion,
         "query": query,
-        "agent_id": agent_id,
+        "agent_role": agent_role,
         "raw_papers": [],
         "approved_papers": current_approved,
     })
@@ -91,7 +95,8 @@ def _update_messages(
 
 
 def _run_research_loop(
-    agent_id: str,
+    debate_id: str,
+    agent_role: str,
     messages: list[BaseMessage],
     motion: str,
 ) -> list[str]:
@@ -101,7 +106,8 @@ def _run_research_loop(
 
     for attempt in range(max_tries):
         query, current_approved_papers = _run_search_attempt(
-            agent_id,
+            debate_id,
+            agent_role,
             messages,
             motion,
             current_approved_papers,
@@ -121,19 +127,24 @@ def _run_research_loop(
     return _extract_approved_titles(current_approved_papers)
 
 
-def _execute_researcher(stance: str, agent_id: str, motion: str) -> list[str]:
-    prompt = _build_research_prompt(stance, motion)
+def _execute_researcher(
+        debate_id: str,
+        agent_role: str,
+        motion: str
+) -> list[str]:
+    prompt = _build_research_prompt(agent_role, motion)
     messages = [HumanMessage(content=prompt)]
-    return _run_research_loop(agent_id, messages, motion)
+    return _run_research_loop(debate_id, agent_role, messages, motion)
 
 
 def prepare_debators(state: DebateState) -> dict[str, list[str]]:
+    debate_id = state["debate_id"]
     motion = state.get("motion", "")
     pro = config.get("agents.pro_stance")
     against = config.get("agents.against_stance")
     
-    pro_sources = _execute_researcher(pro, pro, motion)
-    against_sources = _execute_researcher(against, against, motion)
+    pro_sources = _execute_researcher(debate_id, pro, motion)
+    against_sources = _execute_researcher(debate_id, against, motion)
 
     return {
         "pro_sources": pro_sources,
@@ -142,7 +153,7 @@ def prepare_debators(state: DebateState) -> dict[str, list[str]]:
 
 
 def _build_debator_messages(
-    stance: str,
+    agent_role: str,
     state: DebateState,
 ) -> list[list[BaseMessage]]:
     history = "\n".join(state.get("transcript", []))
@@ -150,12 +161,12 @@ def _build_debator_messages(
     if not history:
         content = config.get("prompts.opening").format(
             motion=state["motion"],
-            stance=stance,
+            stance=agent_role,
         )
     else:
         content = config.get("prompts.debator").format(
             motion=state["motion"], 
-            stance=stance, 
+            stance=agent_role, 
             transcript=history,
         )
 
@@ -163,12 +174,12 @@ def _build_debator_messages(
 
 
 def _run_tool_loop(
-    stance: str,
-    agent_id: str,
+    debate_id: str,
+    agent_role: str,
     messages: list[BaseMessage],
 ) -> str:
     llm = get_chat_model("debater")
-    evidence_tool = create_evidence_tool(agent_id)
+    evidence_tool = create_evidence_tool(agent_role, debate_id)
     llm_with_tools = llm.bind_tools([evidence_tool])
 
     while True:
@@ -188,12 +199,11 @@ def _run_tool_loop(
 
 
 def _execute_debator(
-    stance: str,
-    agent_id: str,
+    agent_role: str,
     state: DebateState,
 ) -> str:
-    messages = _build_debator_messages(stance, state)
-    return _run_tool_loop(stance, agent_id, messages)
+    messages = _build_debator_messages(agent_role, state)
+    return _run_tool_loop(state["debate_id"], agent_role, messages)
 
 
 def _generate_debater_response(
@@ -201,7 +211,7 @@ def _generate_debater_response(
     stance_key: str,
 ) -> str:
     stance = config.get(stance_key)
-    entry = _execute_debator(stance, stance, state)
+    entry = _execute_debator(stance, state)
     turn = state.get("turn_count", 0)
 
     return f"[Turn {turn}] {stance}: {entry}"
@@ -209,6 +219,7 @@ def _generate_debater_response(
 
 def pro_node(state: DebateState) -> ProJudgeResult:
     entry = _generate_debater_response(state, "agents.pro_stance")
+    print(entry)
     return {"transcript": [entry]}
 
 
@@ -250,6 +261,7 @@ def _run_judge_reasoning_loop(
     llm_with_tools: Runnable,
     messages: list[BaseMessage],
     consistency_tool: BaseTool,
+    factchecking_tool: BaseTool,
 ) -> str:
     while True:
         raw_response = llm_with_tools.invoke(messages)
@@ -262,7 +274,7 @@ def _run_judge_reasoning_loop(
             if tool_call["name"] == "check_logical_consistency":
                 result = consistency_tool.invoke(tool_call)
             else:
-                result = audit_cited_claim.invoke(tool_call)
+                result = factchecking_tool.invoke(tool_call)
                 
             messages.append(
                 ToolMessage(
@@ -273,19 +285,20 @@ def _run_judge_reasoning_loop(
 
 
 def judge_node(state: DebateState) -> ProJudgeResult:
-    history = state.get("transcript", [])
+    history = state["transcript"]
     history_str = "\n".join(history)
 
     consistency_tool = create_consistency_tool(history)
-    messages = _build_judge_messages(history_str, state)
-
+    factchecking_tool = create_audit_tool(state["debate_id"])
     llm = get_chat_model("judge")
-    llm_with_tools = llm.bind_tools([consistency_tool, audit_cited_claim])
-
+    llm_with_tools = llm.bind_tools([consistency_tool, factchecking_tool])
+    messages = _build_judge_messages(history_str, state)
+    
     judge_response = _run_judge_reasoning_loop(
         llm_with_tools,
         messages,
         consistency_tool,
+        factchecking_tool,
     )
 
     return {"transcript": [f"\nVERDICT:\n{judge_response}"]}
@@ -317,8 +330,11 @@ debate_app = builder.compile()
 
 
 def run_debate_test() -> None:
+    current_debate_id = str(uuid.uuid4())[:8]
+
     initial_state = {
-        "motion": "Sugar replacements are bad for your health.",
+        "debate_id": current_debate_id,
+        "motion": "AI will replace human",
         "transcript": [],
         "turn_count": 0,
         "max_turns": 2,
@@ -329,12 +345,8 @@ def run_debate_test() -> None:
     print(f"--- DEBATE STARTED: {initial_state['motion']} ---")
     
     for event in debate_app.stream(initial_state):
-        for node, data in event.items():
+        for node in event.items():
             print(f"\n[ NODE: {node} ]")
-            
-            if data and "transcript" in data:
-                last_msg = data["transcript"][-1]
-                print(f"{last_msg}")
 
     print("\n--- DEBATE FINISHED ---")
 
