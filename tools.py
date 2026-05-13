@@ -15,7 +15,7 @@ class Evidence(TypedDict):
     source: str
 
 
-def create_evidence_tool(agent_id: str) -> BaseTool:
+def create_evidence_tool(agent_role: str, debate_id: str) -> BaseTool:
 
     @tool
     def find_evidence(key_words: str) -> list[Evidence]:
@@ -33,8 +33,8 @@ def create_evidence_tool(agent_id: str) -> BaseTool:
             A list of dictionaries, each containing the 'title' and 
             'abstract' of a relevant scientific paper.
         """
-        print(f"----Agent {agent_id} searchs for evidence: {key_words}----")
-        retriever = get_retriever(agent_id)
+        print(f"----Agent {agent_role} searchs for evidence: {key_words}----")
+        retriever = get_retriever(agent_role, debate_id)
         retrieved_docs = retriever.invoke(key_words)
 
         evidence_list = []
@@ -105,7 +105,7 @@ def create_consistency_tool(
     ) -> ConsistencyResult:
         """
         Evaluates a claim or a complete turn for logical contradictions
-        against the agent's historical transcript.
+        against the agent's previous transcript.
 
         Args:
             agent_role: The debater to evaluate ("PRO" or "AGAINST").
@@ -122,7 +122,7 @@ def create_consistency_tool(
 
         print(
             f"----Judge validates consistency of '{validated_claim}'"
-            f" of {agent_role} agent----"
+            f" of {agent_role} agent at {turn_number} turn.----"
         )
         
         if validated_claim == "":
@@ -149,10 +149,11 @@ def create_consistency_tool(
 def _extract_matching_chunks(
         retriever: BaseRetriever,
         source_title: str,
+        claim: str,
 ) -> list[Document]:
     try:
         return retriever.vectorstore.similarity_search(
-            query="", 
+            query=claim, 
             k=config.get("models.judge.audit_chunk_limit"), 
             filter={"title": source_title}
         )
@@ -161,58 +162,61 @@ def _extract_matching_chunks(
         return []
 
 
-@tool
-def audit_cited_claim(
-    agent_role: str,
-    claim: str,
-    exact_source_title: str,
-) -> AuditResult:
-    """
-    Verifies a debater's claim against the raw text of a cited 
-    source document.
+def create_audit_tool(debate_id: str) -> BaseTool:
+    @tool
+    def audit_cited_claim(
+        agent_role: str,
+        claim: str,
+        exact_source_title: str,
+    ) -> AuditResult:
+        """
+        Verifies a debater's claim against the raw text of a cited 
+        source document.
 
-    Args:
-        agent_role: The debater who made the claim.
-        claim: The EXACT factual assertion or statistic debater used.
-        exact_source_title: The exact title of the referenced 
-            academic paper. Must perfectly match a title from
-            the available sources list.
-    """
-    print(
-        f"---Judge factchecks '{claim}' of "
-        f"{agent_role} based on {exact_source_title}"
-    )
+        Args:
+            agent_role: The debater who made the claim.
+            claim: The EXACT factual assertion or statistic debater used.
+            exact_source_title: The exact title of the referenced 
+                academic paper. Must perfectly match a title from
+                the available sources list.
+        """
+        print(
+            f"---Judge factchecks '{claim}' of "
+            f"{agent_role} based on {exact_source_title}"
+        )
+            
+        retriever = get_retriever(agent_role, debate_id)
+        matching_chunks = _extract_matching_chunks(
+            retriever, 
+            exact_source_title,
+            claim,
+        )
+
+        if not matching_chunks:
+            print("----Declared source wasn't found.----")
+            return {
+                "verdict": "UNVERIFIABLE",
+                "reasoning": f"'{exact_source_title}' not found in agent's database."
+            }
+            
+        source_text = "...\n...".join(
+            [
+                chunk.page_content for chunk in matching_chunks
+            ]
+        )
+
+        llm = get_chat_model(
+            "judge"
+        ).with_structured_output(AuditResult)
         
-    retriever = get_retriever(agent_role)
-    matching_chunks = _extract_matching_chunks(
-        retriever, 
-        exact_source_title
-    )
+        prompt = config.get("prompts.judge_factcheck").format(
+            source_text=source_text,
+            claim=claim,
+        )
 
-    if not matching_chunks:
-        print("----Declared source wasn't found.----")
-        return {
-            "verdict": "UNVERIFIABLE",
-            "reasoning": f"'{exact_source_title}' not found."
-        }
-        
-    source_text = "...\n...".join(
-        [
-            chunk.page_content for chunk in matching_chunks
-        ]
-    )
+        response = llm.invoke([HumanMessage(content=prompt)])
+        print(f"-----Verdict: {response['verdict']} -----")
+        print(f"-----Explanation: {response['reasoning']} ----")
 
-    llm = get_chat_model(
-        "judge"
-    ).with_structured_output(AuditResult)
-    
-    prompt = config.get("prompts.judge_factcheck").format(
-        source_text=source_text,
-        claim=claim,
-    )
-
-    response = llm.invoke([HumanMessage(content=prompt)])
-    print(f"-----Verdict: {response['verdict']} -----")
-    print(f"-----Explanation: {response['reasoning']} ----")
-
-    return response
+        return response
+    return audit_cited_claim
