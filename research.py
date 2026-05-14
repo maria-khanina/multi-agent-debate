@@ -138,9 +138,20 @@ def approve_node(
     approved_papers = state.get("approved_papers", [])
     agent_role = state.get("agent_role", "default")
     
+    existing_titles = set()
+    for paper in approved_papers:
+        if paper.get("title"):
+            existing_titles.add(paper["title"])
+    
     for paper in raw_papers:
+        title = paper.get("title")
+        
+        if title and title in existing_titles:
+            continue
+            
         if approve_paper(paper, state["motion"]):
             approved_papers.append(dict(paper))
+            existing_titles.add(title)
             _process_and_store_paper(paper, agent_role, state["debate_id"])
             
     return {"approved_papers": approved_papers}
