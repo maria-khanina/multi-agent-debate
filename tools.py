@@ -18,24 +18,30 @@ class Evidence(TypedDict):
 def create_evidence_tool(agent_role: str, debate_id: str) -> BaseTool:
 
     @tool
-    def find_evidence(key_words: str) -> list[Evidence]:
+    def find_evidence(
+        query: str,
+        goal: str,
+    ) -> list[Evidence]:
         """
-        Search the private database for peer-reviewed paper abstracts.
+        Search the private vector database for empirical evidence.
         
-        Use this tool when you need empirical evidence, specific facts, or
-        methodological details to support your stance or refute an opponent.
+        This database uses semantic embeddings. Do NOT use isolated 
+        keywords or boolean operators. Pass full sentences, specific 
+        factual claims, or natural language questions.
         
         Args:
-            key_words: A string of descriptive terms or a short phrase 
-                representing the search intent.
+            query: A complete sentence or specific claim to 
+                semantically match against the database text.
+                (e.g., "Automation reduces the share of human labor.")
+            goal: A brief explanation of what you are trying 
+                to prove or refute with this search.
 
         Returns:
-            A list of dictionaries, each containing the 'title' and 
-            'abstract' of a relevant scientific paper.
+            A list of dictionaries containing scientific paper excerpts.
         """
-        print(f"----Agent {agent_role} searchs for evidence: {key_words}----")
+        print(f"----Agent {agent_role} searchs for evidence: {query}----")
         retriever = get_retriever(agent_role, debate_id)
-        retrieved_docs = retriever.invoke(key_words)
+        retrieved_docs = retriever.invoke(query)
 
         evidence_list = []
         for doc in retrieved_docs:

@@ -1,0 +1,67 @@
+[
+    {
+        "motion": "People must pass mandatory parenting courses to have children.",
+        "turns": [
+            "PRO: The state has an absolute duty to intervene and regulate family life to prevent child abuse before it happens. Protecting vulnerable minors overrides any individual claim to reproductive autonomy.",
+            "AGAINST: Having children is a fundamental biological right that no government can infringe upon under any circumstances. Bureaucrats have no moral authority to grant licenses for human reproduction.",
+            "PRO: By implementing a standardized curriculum, we ensure that every child is raised in an environment free of psychological trauma, utilizing empirically proven child-rearing methodologies.",
+            "AGAINST: Standardized curriculums are flawed because cultural norms around raising children vary drastically. What one group considers strict, another considers necessary discipline.",
+            "PRO: The curriculum wouldn't be rigid. It would simply teach basic safety, like CPR and nutrition, allowing parents complete freedom in their specific cultural disciplinary practices.",
+            "AGAINST: Of course, if parents are proven to be physically abusive, the state must step in immediately, take the children away, and revoke their parental rights permanently for the safety of the child.",
+            "PRO: Exactly, and these courses wouldn't be invasive. The state has no right to dictate how families raise their children in their private homes; it is solely about providing educational resources.",
+            "AGAINST: Educational resources are fine, but tying them to a mandatory test means the government is actively suppressing the population growth of marginalized communities who might struggle with standardized testing."
+        ]
+    },
+    {
+        "motion": "The death penalty should be abolished.",
+        "turns": [
+            "PRO: The state does not possess the moral authority to take a human life, regardless of the crime committed. Life is inherently sacred and inviolable.",
+            "AGAINST: The ultimate purpose of the justice system is pure retribution. Those who intentionally take an innocent life forfeit their own, and the state must exact that ultimate price to balance the moral scales.",
+            "PRO: The justice system is administered by humans and is inherently flawed, making irreversible punishments unacceptable. However, modern DNA evidence provides absolute, 100 percent certainty of guilt, so we can perfectly identify the true perpetrators.",
+            "AGAINST: Furthermore, executing murderers brings necessary psychological closure to the families of the victims, which is a critical function of the criminal justice process.",
+            "PRO: True justice focuses on rehabilitation. Even the most violent offenders can be reformed and eventually reintegrated into society as productive citizens.",
+            "AGAINST: We must maintain capital punishment because it is the only effective way to deter future criminals from committing murder. The entire point of the penalty is to maximize overall societal safety.",
+            "PRO: Keeping inmates on death row for decades actually costs taxpayers significantly more than sentencing them to life in prison without the possibility of parole.",
+            "AGAINST: Economic arguments are irrelevant when dealing with ultimate evil. We cannot put a price tag on justice, even if the appeals process drains state resources."
+        ]
+    },
+    {
+        "motion": "Children under 12 should be banned from accessing the internet.",
+        "turns": [
+            "PRO: The internet is a universally toxic environment that inherently destroys children's psychological development. It exposes them to unrestricted adult content and predatory algorithms.",
+            "AGAINST: Restricting access violates a child's right to information. The modern world requires digital literacy, and banning them outright severely handicaps their educational development.",
+            "PRO: We can teach digital literacy through offline, simulated environments in schools. True cognitive development requires physical interaction with the real world, not glowing screens.",
+            "AGAINST: Children are incredibly adaptable and possess the critical thinking skills necessary to navigate online risks naturally without heavy-handed adult interference.",
+            "PRO: We don't want a total ban on screens. We just want to restrict them to highly curated, educational online platforms and safe, walled-garden internet networks designed specifically for kids.",
+            "AGAINST: Instead of bans, parents must constantly monitor their children's online activity, aggressively filter the content they consume, and physically oversee their screen time to protect them.",
+            "PRO: Monitoring is impossible because children will always find workarounds. The only absolute solution is legislation that holds tech companies criminally liable for allowing minors on their platforms.",
+            "AGAINST: Holding platforms liable will just lead to massive privacy violations, as companies will be forced to collect biometric data to verify the exact age of every single user."
+        ]
+    },
+    {
+        "motion": "Israel's military strategy in Gaza is self-destructive.",
+        "turns": [
+            "PRO: Military force can never solve complex political and territorial disputes. Relying on violence only radicalizes the opposing population and guarantees endless cycles of warfare.",
+            "AGAINST: A sovereign nation has an unconditional mandate to neutralize direct military threats to its civilian population. Deterrence through overwhelming force is the only language understood by extremist factions.",
+            "PRO: The heavy bombardment is isolating Israel diplomatically. Losing the support of vital Western allies and facing international sanctions severely degrades the nation's long-term strategic security.",
+            "AGAINST: International opinion is fickle and secondary to immediate physical survival. Western allies will ultimately respect strength and established facts on the ground.",
+            "PRO: The only way to achieve lasting peace and security is for the international community to forcefully intervene, deploy foreign military coalitions, and physically dismantle the extremist infrastructure.",
+            "AGAINST: Israel acts with complete surgical precision to avoid all civilian casualties, but in a dense urban warzone like Gaza, massive collateral damage is simply inevitable and cannot be prevented.",
+            "PRO: Furthermore, the economic cost of a prolonged occupation drains domestic resources, weakening the nation's economy and internal social cohesion.",
+            "AGAINST: Economic resources can be rebuilt, but the destruction of hostile military capabilities provides a permanent security dividend that outweighs short-term financial deficits."
+        ]
+    },
+    {
+        "motion": "Reboots of popular movies should be prohibited.",
+        "turns": [
+            "PRO: The film industry relies on intellectual property laws that allow for monopolistic control over culture. Prohibiting reboots would force major studios to invest capital into original screenplays and foster genuine artistic innovation.",
+            "AGAINST: Culture has always operated on the retelling of established myths. Just as Shakespeare reinterpreted historical events, modern filmmakers must have the liberty to update older cinematic stories for contemporary audiences.",
+            "PRO: Comparing modern corporate reboots to Shakespeare is a false equivalence. Reboots are strictly risk-averse financial calculations designed to exploit existing brand recognition, actively suppressing new creators who cannot compete with massive marketing budgets.",
+            "AGAINST: The free market dictates production. If audiences genuinely desired completely original concepts over familiar properties, box office returns would reflect that demand. Studios merely supply what consumers actively choose to purchase.",
+            "PRO: The market is not truly free; it is an oligopoly where massive conglomerates artificially manufacture demand through ubiquitous advertising. Consumers only buy tickets to reboots because original films are denied wide theatrical distribution.",
+            "AGAINST: Even if marketing plays a role, a reboot requires thousands of artists, technicians, and writers to execute. Prohibiting them by law would constitute massive government overreach into creative expression and cause severe unemployment in the entertainment sector.",
+            "PRO: Government regulation of media is not unprecedented; we already regulate monopolies. Restricting the endless recycling of copyrights would ultimately expand the job market by diversifying the number of independent production houses receiving greenlights.",
+            "AGAINST: Expanding independent production cannot be achieved by banning established genres. A healthier approach is providing public arts grants for original creators, preserving both the economic stability of the blockbuster system and the freedom of artistic expression."
+        ]
+    }
+]
