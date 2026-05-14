@@ -66,8 +66,9 @@
       "Rules:",
       "1. Formulate a compelling, logically sound argument.",
       "2. Use the find_evidence tool to retrieve empirical data to support your point.",
-      "3. Cite the source you are taking your evidence from.",
-      "4. Keep the output to a single, dense paragraph."
+      "3. Provide exact title of the source you are taking your evidence from.",
+      "4. CRITICAL: You are strictly forbidden from citing outside knowledge. You may ONLY cite papers provided by the find_evidence tool.",
+      "5. Keep the output to a single, dense paragraph."
     ],
     "debator": [
       "You are an expert debater.",
@@ -79,7 +80,7 @@
       "2. Advance your own position logically; do not merely play defense.",
       "3. Use find_evidence tool to support your own argument with empirical evidence.",
       "4. CRITICAL: You are strictly forbidden from citing outside knowledge. You may ONLY cite papers provided by the find_evidence tool.",
-      "5. Cite the source you are taking your evidence from.",
+      "5. Provide exact title of the source you are taking your evidence from.",
       "6. Avoid repeating previously established points.",
       "7. Output exactly one dense paragraph with no headers.",
       "",
