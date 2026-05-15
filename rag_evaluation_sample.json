@@ -1,0 +1,19 @@
+{
+    "subject": "Sugar replacements",
+    "motion": "Sugar replacements are bad for your health.",
+    "stance": "PRO",
+    "queries_and_goals": [
+        {
+            "query": "non-nutritive sweeteners gut microbiome",
+            "goal": "Prove artificial sweeteners negatively alter gut bacteria."
+        },
+        {
+            "query": "sugar substitutes glucose intolerance",
+            "goal": "Show that sugar substitutes can induce glucose intolerance."
+        },
+        {
+            "query": "artificial sweeteners weight gain",
+            "goal": "Demonstrate replacements do not aid long-term weight loss."
+        }
+    ]
+}

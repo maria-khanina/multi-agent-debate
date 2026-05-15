@@ -1,36 +1,22 @@
 import io
-import requests
-from typing import NotRequired, Literal, TypedDict
+from typing import Literal
 
-from langgraph.graph import END, StateGraph
+import requests
 from langchain_core.documents import Document
+from langgraph.graph import END, StateGraph
 from pypdf import PdfReader
 
-from openalex_search import search_papers, SciencePaper
-from configurations.config_manager import config, get_chat_model, get_retriever
+from configurations.config_manager import config, get_chat_model, \
+    get_retriever
+from entities import ResearcherState, SciencePaper, SearchResult
+from openalex_search import search_papers
 from tools import extract_llm_response
-
-
-class ResearcherState(TypedDict):
-    debate_id: str
-    motion: str
-    query: str
-    agent_role: str
-    raw_papers: NotRequired[list[SciencePaper]]
-    approved_papers: NotRequired[list[SciencePaper]]
-
-
-class SearchResult(TypedDict):
-    raw_papers: list[SciencePaper]
 
 
 def search_node(state: ResearcherState) -> SearchResult:
     query = state.get("query", "")
     papers_per_search = config.get("search.papers_per_search")
-
     new_papers = search_papers(query, papers_per_search)
-    print(f"----Found {len(new_papers)} papers.------")
-
     return {"raw_papers": new_papers}
 
 
@@ -69,10 +55,8 @@ def approve_paper(paper: SciencePaper, motion: str) -> bool:
     llm = get_chat_model("approver")
     raw_response = llm.invoke(prompt)
     verdict = extract_llm_response(raw_response)
-    print(
-        f"---APPROVING:  {paper['title']}, "
-        f"{paper['citations']} citations: {verdict}"
-    )
+    
+    print(f"[Approver] '{paper['title'][:30]}...' -> {verdict}")
     
     pass_word = config.get("prompts.paper_approver_pass_word")
     return pass_word in verdict.upper()
@@ -80,11 +64,14 @@ def approve_paper(paper: SciencePaper, motion: str) -> bool:
 
 def extract_text_from_pdf(url: str) -> str:
     try:
+        print(f"[PDF] Downloading {url}...")
         response = requests.get(url, timeout=10)
         response.raise_for_status()
+        
         content_type = response.headers.get("Content-Type", "")
         if "application/pdf" not in content_type:
             return ""
+            
         pdf_file = io.BytesIO(response.content)
         reader = PdfReader(pdf_file)
         text = ""
@@ -93,7 +80,8 @@ def extract_text_from_pdf(url: str) -> str:
             if extracted:
                 text += extracted + "\n"
         return text
-    except Exception:
+    except Exception as e:
+        print(f"[PDF Error] Failed to extract text: {e}")
         return ""
 
 
@@ -110,13 +98,13 @@ def _process_and_store_paper(
     if pdf_url:
         full_text = extract_text_from_pdf(pdf_url)
         
-    content = full_text if full_text.strip() else abstract
     if full_text.strip():
-        print(f"---Paper {title}: saved pdf of {len(content)} chars.")
         content = full_text
+        print(f"[Database] Saved full PDF for '{title[:30]}...'")
     else:
-        print(f"---Paper {title}: saved abstract of {len(content)} chars.")
         content = abstract
+        print(f"[Database] Saved abstract for '{title[:30]}...'")
+        
     if not content.strip():
         return None
 
@@ -124,8 +112,8 @@ def _process_and_store_paper(
         page_content=content,
         metadata={
             "title": title,
-            "source": "pdf" if full_text.strip() else "abstract"
-        }
+            "source": "pdf" if full_text.strip() else "abstract",
+        },
     )
     retriever = get_retriever(agent_role, debate_id)
     retriever.add_documents([doc])
@@ -137,6 +125,7 @@ def approve_node(
     raw_papers = state.get("raw_papers", [])
     approved_papers = state.get("approved_papers", [])
     agent_role = state.get("agent_role", "default")
+    max_knowledge_base = config.get("search.max_knowledge_base", 2)
     
     existing_titles = set()
     for paper in approved_papers:
@@ -145,19 +134,26 @@ def approve_node(
     
     for paper in raw_papers:
         title = paper.get("title")
-        
         if title and title in existing_titles:
             continue
             
         if approve_paper(paper, state["motion"]):
             approved_papers.append(dict(paper))
             existing_titles.add(title)
-            _process_and_store_paper(paper, agent_role, state["debate_id"])
+            _process_and_store_paper(
+                paper, 
+                agent_role, 
+                state["debate_id"],
+            )
+        
+        if len(approved_papers) >= max_knowledge_base:
+            break
             
     return {"approved_papers": approved_papers}
 
 
 research_workflow = StateGraph(ResearcherState)
+
 research_workflow.add_node("search_node", search_node)
 research_workflow.add_node("approve_node", approve_node)
 research_workflow.set_entry_point("search_node")

@@ -1,20 +1,11 @@
 import os
 import requests
-from typing import Any, TypedDict
+from typing import Any
+
+from entities import SciencePaper
 
 
-class SciencePaper(TypedDict):
-    title: str
-    year: int | None
-    citations: int
-    affiliations: list[str]
-    abstract: str
-    pdf_url: str | None
-
-
-def _find_max_index(
-    inverted_index: dict[str, list[int]],
-) -> int:
+def _find_max_index(inverted_index: dict[str, list[int]]) -> int:
     max_index = 0
     for positions in inverted_index.values():
         for pos in positions:
@@ -26,7 +17,7 @@ def _find_max_index(
 def revert_index(
     inverted_index: dict[str, list[int]],
     max_index: int,
-):
+) -> list[str]:
     words = [""] * (max_index + 1)
     for word, positions in inverted_index.items():
         for pos in positions:
@@ -64,8 +55,8 @@ def _extract_affiliations(
 
 
 def _wrap_paper(
-        paper: dict[str, Any],
-        results: list[SciencePaper],
+    paper: dict[str, Any],
+    results: list[SciencePaper],
 ) -> None:
     if paper.get('open_access') is None:
         return None
@@ -74,9 +65,7 @@ def _wrap_paper(
     
     pdf_url = paper['open_access']['oa_url']
 
-    affiliations = _extract_affiliations(
-        paper.get('authorships', [])
-    )
+    affiliations = _extract_affiliations(paper.get('authorships', []))
     abstract = _reconstruct_abstract(
         paper.get('abstract_inverted_index')
     )
@@ -92,20 +81,14 @@ def _wrap_paper(
 
 
 def search_papers(query: str, top_num=3) -> list[SciencePaper]:
-    """
-    Search the OpenAlex database for scientific papers and metadata.
-    Provide standard keywords as the query. Use double quotes for 
-    exact phrases (e.g., "large language models"). 
-    The tool returns metadata including citation counts and 
-    institutional affiliations to aid in evaluating paper validity.
-    """
     try:
+        print(f"\n[OpenAlex] Searching for: '{query}'")
         url = "https://api.openalex.org/works"
         params = {
             "search": query,
             "per-page": top_num,
             "sort": "relevance_score:desc",
-            "mailto": os.getenv("OPENALEX_EMAIL", "")
+            "mailto": os.getenv("OPENALEX_EMAIL", ""),
         }
 
         response = requests.get(url, params=params, timeout=10)
@@ -115,7 +98,9 @@ def search_papers(query: str, top_num=3) -> list[SciencePaper]:
         results = []
         for paper in data.get('results', []):
             _wrap_paper(paper, results)
+            
+        print(f"[OpenAlex] Found {len(results)} valid papers.")
         return results
     except Exception as e:
-        print(f"OpenAlex search failed: {e}")
+        print(f"[OpenAlex Error] Search failed: {e}")
         return []
