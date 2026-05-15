@@ -89,11 +89,31 @@
       "",
       "Your Argument:"
     ],
-    "judge_consistency": [
-      "Analyze the claim against past transcript.",
-      "Identify strict logical contradictions.",
-      "Past Transcript:\n{history_str}\n\n",
-      "Current Claim:\n{validated_claim}"
+    "consistency_extraction": [
+      "Debate Motion: {motion}",
+      "Agent {agent_role} just spoke.",
+      "Latest Turn:\n{latest_turn}\n",
+      "Task 1: Identify if this turn contains any internal logical contradictions where the agent opposes their own statements within this single turn. Log them in internal_contradictions.",
+      "Task 2: Extract the core claims from this turn into distinct topic and stance pairs. Keep topics broad.",
+      "Formatting Rule: All topic keys MUST be lowercase, use spaces instead of underscores, and be 2 to 4 words maximum."
+    ],
+    "consistency_evaluation": [
+      "Historical Topic: {old_topic}",
+      "Historical Stance: {old_stance}\n",
+      "New Topic: {new_topic}",
+      "New Stance: {new_stance}\n",
+      "Compare the New Stance against the Historical Stance.",
+      "Classify the relationship into one of these categories:",
+      "- CONTRADICT: The new stance logically opposes the old one.",
+      "- REDUNDANT: The new stance repeats the old one entirely.",
+      "- DIFFERENT_TOPIC: The new stance covers a different nuance, expands on the topic, or is completely unrelated.\n",
+      "If CONTRADICT, provide an explanation. Otherwise, leave empty."
+    ],
+    "consistency_deduplication": [
+      "Review the following list of debate contradictions.",
+      "{contradictions_json}\n",
+      "Your task is to deduplicate this list. If multiple entries describe the exact same underlying logical contradiction (even if the topic_keys are slightly different synonyms), merge them.",
+      "Keep the entry that has the clearest, most comprehensive explanation. Return the clean list."
     ],
     "judge_factcheck": [
       "Evaluate the claim against the source text.",
@@ -108,14 +128,16 @@
       "PRO debator Available Sources:\n{pro_sources}",
       "AGAINST debator Available Sources:\n{against_sources}",
       "",
+      "Your Notes on Logical Contradictions Detected During the Debate:",
+      "PRO:\n{pro_contradictions}",
+      "AGAINST:\n{against_contradictions}",
       "Rules:",
-      "0. Read the transcript of the debate below",
-      "1. You MUST use tools to audit the debate.",
-      "2. Transcript Indexing: each message is labelled with turn number starting from 0.",
-      "3. When using check_logical_consistency, pass the correct integer index for the message you are checking.",
-      "4. Pay attention that check_logical_consistency verifies given claim against PREVIOUS claims.",
-      "4. Use audit_cited_claim to verify evidence against the exact source titles.",
-      "5. Penalize debaters for fabricated claims, sources, and inconsistency.",
+      "1. Read the transcript of the debate below.",
+      "2. Identify ALL external references and empirical claims made by the debaters in the transcript.",
+      "3. Use dabetors' Available Sources from above to identify the exact title of the source debator references.",
+      "4. Use the audit_cited_claim tool to verify these references. You MUST pass the exact source title the debater referenced along with the the FULL contextual sentence of the claim.",
+      "5. Address any logical contradictions listed in your notes naturally as part of your critique. Do NOT mention 'prompts', 'instructions', or 'system notes'. Address the debaters directly.",
+      "6. Penalize debaters for fabricated claims, hallucinated sources, and the logical contradictions explicitly listed above.",
       "",
       "Transcript:\n{transcript}",
       "",

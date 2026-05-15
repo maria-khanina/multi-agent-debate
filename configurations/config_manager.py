@@ -17,7 +17,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 import redis
 
 
-MODEL = "gemini_llm"
+MODEL = "reasoning_gemini_llm"
 
 
 class ConfigManager:
