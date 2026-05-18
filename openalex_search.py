@@ -58,12 +58,9 @@ def _wrap_paper(
     paper: dict[str, Any],
     results: list[SciencePaper],
 ) -> None:
-    if paper.get('open_access') is None:
+    pdf_url = paper.get('open_access', {}).get('oa_url')
+    if pdf_url is None:
         return None
-    if paper['open_access'].get('oa_url') is None:
-        return None
-    
-    pdf_url = paper['open_access']['oa_url']
 
     affiliations = _extract_affiliations(paper.get('authorships', []))
     abstract = _reconstruct_abstract(
