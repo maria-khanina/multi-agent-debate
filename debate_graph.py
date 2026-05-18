@@ -1,17 +1,23 @@
-import uuid
-from typing import Any, Literal
+import json
+from typing import Any, Literal, TypedDict
 
-from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
-from langchain_core.runnables import Runnable
-from langchain_core.tools import BaseTool
+from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph import END, START, StateGraph
 
 from agents import execute_researcher, generate_debater_response
 from configurations.config_manager import config, get_chat_model
-from debators.consistency_tracking import deduplicate_contradictions, get_memory_store, \
-    process_debate_turn
-from entities import Contradiction, DebateState
-from tools import create_audit_tool, extract_llm_response
+from arguments_tracking import (
+    deduplicate_contradictions,
+    execute_with_backoff,
+    get_topic_store,
+    process_debate_turn,
+)
+from entities import Contradiction, DebateState, DebaterMistake
+from tools import extract_llm_response
+
+
+class FilteredTopics(TypedDict):
+    keys_to_drop: list[str]
 
 
 def prepare_debators(state: DebateState) -> dict[str, Any]:
@@ -28,61 +34,136 @@ def prepare_debators(state: DebateState) -> dict[str, Any]:
 
 def pro_node(state: DebateState) -> dict[str, Any]:
     entry = generate_debater_response(state, "agents.pro_stance")
-    memory_store = get_memory_store(state["debate_id"], "PRO")
+    topic_store = get_topic_store(state["debate_id"])
     
     new_contradictions = []
+    new_mistakes = []
+    factcheck_stats = state.get("pro_factcheck_stats", {
+        "SUPPORTED": 0, 
+        "FABRICATED": 0, 
+        "EXAGGERATED": 0, 
+        "UNVERIFIABLE": 0
+    })
+    
     process_debate_turn(
+        state["debate_id"],
         entry,
         state["motion"],
         "PRO",
-        memory_store,
+        topic_store,
         new_contradictions,
+        new_mistakes,
+        factcheck_stats,
     )
     
     return {
         "transcript": [entry],
         "pro_contradictions": new_contradictions,
+        "pro_mistakes": new_mistakes,
+        "pro_factcheck_stats": factcheck_stats,
     }
 
 
 def against_node(state: DebateState) -> dict[str, Any]:
     entry = generate_debater_response(state, "agents.against_stance")
-    memory_store = get_memory_store(state["debate_id"], "AGAINST")
+    topic_store = get_topic_store(state["debate_id"])
     
     new_contradictions = []
+    new_mistakes = []
+    factcheck_stats = state.get("against_factcheck_stats", {
+        "SUPPORTED": 0, 
+        "FABRICATED": 0, 
+        "EXAGGERATED": 0, 
+        "UNVERIFIABLE": 0
+    })
+    
     process_debate_turn(
+        state["debate_id"],
         entry,
         state["motion"],
         "AGAINST",
-        memory_store,
+        topic_store,
         new_contradictions,
+        new_mistakes,
+        factcheck_stats,
     )
 
     return {
         "transcript": [entry],
         "turn_count": state.get("turn_count", 0) + 1,
         "against_contradictions": new_contradictions,
+        "against_mistakes": new_mistakes,
+        "against_factcheck_stats": factcheck_stats,
     }
 
 
-def audit_node(state: DebateState) -> dict[str, Any]:
-    print("\n--- Auditing Phase ---")
-    cleaned_pro = deduplicate_contradictions(
-        state.get("pro_contradictions", [])
-    )
-    cleaned_against = deduplicate_contradictions(
-        state.get("against_contradictions", [])
+def _get_topics_for_llm(all_topics: list[dict]) -> list[dict]:
+    return [
+        {
+            "topic_key": t["subject"], 
+            "winning_claim": t["winning_claim"]
+        } 
+        for t in all_topics
+    ]
+
+
+def _invoke_rhetoric_filter(topics_json: str) -> list[str]:
+    language_model = get_chat_model("judge").with_structured_output(
+        FilteredTopics
     )
     
-    return {
-        "cleaned_pro_contradictions": cleaned_pro,
-        "cleaned_against_contradictions": cleaned_against,
-    }
+    prompt_template = config.get("prompts.filter_rhetoric")
+    prompt_text = prompt_template.format(topics_json=topics_json)
+    
+    def _invoke() -> FilteredTopics:
+        return language_model.invoke([HumanMessage(content=prompt_text)])
+        
+    try:
+        filter_result = execute_with_backoff(_invoke)
+        return filter_result.get("keys_to_drop", [])
+    except Exception as error:
+        print(f"[Filter] Error during rhetoric filtering: {error}")
+        return []
 
 
-def route_debate(state: DebateState) -> Literal["pro_node", "audit_node"]:
+def _calculate_final_stats(
+    all_topics: list[dict], 
+    keys_to_drop: list[str],
+) -> dict[str, int]:
+    stats = {"PRO": 0, "AGAINST": 0}
+    for topic in all_topics:
+        if topic["subject"] not in keys_to_drop:
+            winner = topic.get("current_winner")
+            if winner in stats:
+                stats[winner] += 1
+    return stats
+
+
+def filter_claims_node(state: DebateState) -> dict[str, Any]:
+    print("\n--- Filtering Rhetoric & Calculating Stats ---")
+    topic_store = get_topic_store(state["debate_id"])
+    all_topics = topic_store.get_all_topics()
+    
+    topics_for_llm = _get_topics_for_llm(all_topics)
+    if not topics_for_llm:
+        return {"final_argument_stats": {"PRO": 0, "AGAINST": 0}}
+        
+    topics_json = json.dumps(topics_for_llm, indent=2)
+    keys_to_drop = _invoke_rhetoric_filter(topics_json)
+        
+    print(f"[Filter] Dropped {len(keys_to_drop)} purely rhetorical topics.")
+    
+    stats = _calculate_final_stats(all_topics, keys_to_drop)
+                
+    print(f"[Stats] Final Scoreboard: {stats}")
+    return {"final_argument_stats": stats}
+
+
+def route_debate(
+    state: DebateState,
+) -> Literal["pro_node", "filter_claims_node"]:
     if state.get("turn_count", 0) >= state.get("max_turns", 3):
-        return "audit_node"
+        return "filter_claims_node"
     return "pro_node"
 
 
@@ -92,81 +173,110 @@ def _format_contradictions_for_judge(
     if not contradictions:
         return "None detected."
     formatted = []
-    for c in contradictions:
+    for contra in contradictions:
         formatted.append(
-            f"- Topic: {c['topic_key']}\n"
-            f"  Old Stance: {c['old_stance']}\n"
-            f"  New Stance: {c['new_stance']}\n"
-            f"  Explanation: {c['explanation']}"
+            f"- Topic: {contra['topic_key']}\n"
+            f"  Old Stance: {contra['old_stance']}\n"
+            f"  New Stance: {contra['new_stance']}\n"
+            f"  Explanation: {contra['explanation']}"
         )
     return "\n".join(formatted)
+
+
+def _format_mistakes_for_judge(
+    mistakes: list[DebaterMistake],
+) -> str:
+    if not mistakes:
+        return "None recorded."
+    formatted = []
+    for mistake in mistakes:
+        formatted.append(
+            f"- Topic: {mistake['topic']}\n"
+            f"  Attempted Claim: {mistake['attempted_claim']}\n"
+            f"  Failure Type: {mistake['failure_type']}\n"
+            f"  Explanation: {mistake['explanation']}"
+        )
+    return "\n".join(formatted)
+
+
+def _get_judge_prompt_kwargs(
+    history_str: str,
+    state: DebateState,
+    cleaned_pro: list[Contradiction],
+    cleaned_against: list[Contradiction],
+) -> dict[str, Any]:
+    pro_sources = "\n".join([f"- {t}" for t in state.get("pro_sources", [])])
+    aga_sources = "\n".join(
+        [f"- {t}" for t in state.get("against_sources", [])]
+    )
+    
+    stats = state.get("final_argument_stats", {"PRO": 0, "AGAINST": 0})
+    pro_fc_str = json.dumps(state.get("pro_factcheck_stats", {}))
+    against_fc_str = json.dumps(state.get("against_factcheck_stats", {}))
+    
+    return {
+        "motion": state.get("motion", ""),
+        "pro_sources": pro_sources or "None",
+        "against_sources": aga_sources or "None",
+        "pro_contradictions": _format_contradictions_for_judge(cleaned_pro),
+        "against_contradictions": _format_contradictions_for_judge(
+            cleaned_against
+        ),
+        "pro_mistakes": _format_mistakes_for_judge(
+            state.get("pro_mistakes", [])
+        ),
+        "against_mistakes": _format_mistakes_for_judge(
+            state.get("against_mistakes", [])
+        ),
+        "pro_factcheck_stats": pro_fc_str,
+        "against_factcheck_stats": against_fc_str,
+        "pro_score": stats.get("PRO", 0),
+        "against_score": stats.get("AGAINST", 0),
+        "transcript": history_str,
+    }
 
 
 def _build_judge_messages(
     history_str: str,
     state: DebateState,
+    cleaned_pro_contradictions: list[Contradiction],
+    cleaned_against_contradictions: list[Contradiction],
 ) -> list[BaseMessage]:
-    pro_sources_str = "\n".join(
-        [f"- {t}" for t in state.get("pro_sources", [])]
-    )
-    against_sources_str = "\n".join(
-        [f"- {t}" for t in state.get("against_sources", [])]
-    )
+    prompt_template = config.get("prompts.judge")
     
-    pro_contra_str = _format_contradictions_for_judge(
-        state.get("cleaned_pro_contradictions", [])
+    kwargs = _get_judge_prompt_kwargs(
+        history_str,
+        state,
+        cleaned_pro_contradictions,
+        cleaned_against_contradictions,
     )
-    against_contra_str = _format_contradictions_for_judge(
-        state.get("cleaned_against_contradictions", [])
-    )
-
-    prompt = config.get("prompts.judge").format(
-        motion=state.get("motion", ""),
-        pro_sources=pro_sources_str or "None",
-        against_sources=against_sources_str or "None",
-        pro_contradictions=pro_contra_str,
-        against_contradictions=against_contra_str,
-        transcript=history_str,
-    )
+    prompt = prompt_template.format(**kwargs)
+    
     return [HumanMessage(content=prompt)]
 
 
-def _run_judge_reasoning_loop(
-    llm_with_tools: Runnable,
-    messages: list[BaseMessage],
-    factchecking_tool: BaseTool,
-) -> str:
-    print("\n--- Judge Thinking ---")
-    while True:
-        raw_response = llm_with_tools.invoke(messages)
-        messages.append(raw_response)
-        
-        if not raw_response.tool_calls:
-            return extract_llm_response(raw_response)
-            
-        for tool_call in raw_response.tool_calls:
-            result = factchecking_tool.invoke(tool_call)
-            messages.append(
-                ToolMessage(
-                    content=str(result),
-                    tool_call_id=tool_call["id"],
-                )
-            )
-
-
 def judge_node(state: DebateState) -> dict[str, Any]:
+    print("\n--- Auditing Contradictions ---")
+    cleaned_pro = deduplicate_contradictions(
+        state.get("pro_contradictions", [])
+    )
+    cleaned_against = deduplicate_contradictions(
+        state.get("against_contradictions", [])
+    )
+    
     history_str = "\n".join(state["transcript"])
-    factchecking_tool = create_audit_tool(state["debate_id"])
     
     llm = get_chat_model("judge")
-    llm_with_tools = llm.bind_tools([factchecking_tool])
-    messages = _build_judge_messages(history_str, state)
-    
-    judge_response = _run_judge_reasoning_loop(
-        llm_with_tools,
-        messages,
-        factchecking_tool,
+    messages = _build_judge_messages(
+        history_str, 
+        state,
+        cleaned_pro,
+        cleaned_against,
     )
+    
+    print("\n--- Judge Thinking ---")
+    response = llm.invoke(messages)
+    judge_response = extract_llm_response(response)
 
     return {"transcript": [f"\nVERDICT:\n{judge_response}"]}
 
@@ -176,7 +286,7 @@ builder = StateGraph(DebateState)
 builder.add_node("prepare_debators", prepare_debators)
 builder.add_node("pro_node", pro_node)
 builder.add_node("against_node", against_node)
-builder.add_node("audit_node", audit_node)
+builder.add_node("filter_claims_node", filter_claims_node)
 builder.add_node("judge_node", judge_node)
 
 builder.add_edge(START, "prepare_debators")
@@ -187,47 +297,10 @@ builder.add_conditional_edges(
     route_debate,
     {
         "pro_node": "pro_node",
-        "audit_node": "audit_node",
+        "filter_claims_node": "filter_claims_node",
     }
 )
-builder.add_edge("audit_node", "judge_node")
+builder.add_edge("filter_claims_node", "judge_node")
 builder.add_edge("judge_node", END)
 
 debate_app = builder.compile()
-
-
-def run_debate_test() -> None:
-    current_debate_id = uuid.uuid4().hex
-
-    initial_state = {
-        "debate_id": current_debate_id,
-        "motion": "AI will replace human",
-        "transcript": [],
-        "turn_count": 0,
-        "max_turns": 2,
-        "pro_sources": [],
-        "against_sources": [],
-        "pro_contradictions": [],
-        "against_contradictions": [],
-        "cleaned_pro_contradictions": [],
-        "cleaned_against_contradictions": [],
-    }
-
-    print(f"\n{'='*50}")
-    print(f"STARTING DEBATE: {initial_state['motion']}")
-    print(f"{'='*50}\n")
-    
-    for event in debate_app.stream(initial_state):
-        for node, state_update in event.items():
-            print(f"\n--- [ NODE EXECUTED: {node} ] ---")
-            if "transcript" in state_update:
-                if state_update["transcript"]:
-                    print(f"\n{state_update['transcript'][-1]}\n")
-                    
-    print(f"\n{'='*50}")
-    print("DEBATE FINISHED")
-    print(f"{'='*50}\n")
-
-
-if __name__ == "__main__":
-    run_debate_test()

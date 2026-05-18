@@ -15,20 +15,9 @@ services:
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - REDIS_URL=redis://redis:6379/0
-      - OLLAMA_HOST=http://ollama_service:11434
     volumes:
       - ./:/app  
       - ./debate_vectors:/app/debate_vectors
     command: tail -f /dev/null
-  
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama_service
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_models:/root/.ollama
-
 volumes:
   redis_data:
-  ollama_models:

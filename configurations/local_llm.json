@@ -109,12 +109,24 @@
       "You are a debate judge.",
       "Motion: {motion}",
       "",
+      "Your Notes on Failed Arguments and Mistakes:",
+      "PRO:\n{pro_mistakes}",
+      "AGAINST:\n{against_mistakes}",
+      "",
+      "Fact-Checking Statistics:",
+      "PRO: {pro_factcheck_stats}",
+      "AGAINST: {against_factcheck_stats}",
+      "",
+      "Final Argument Scoreboard (number of valid arguments won):",
+      "PRO: {pro_score}",
+      "AGAINST: {against_score}",
+      "",
       "Rules:",
       "1. Read the transcript below.",
       "2. Evaluate who won:",
-      "    - Penalize debaters who change the subject ",
-      " without covering opponent's counter argument.",
-      "    - Penalize debaters who just repeat the same point.",
+      "    - Use the Final Argument Scoreboard and Fact-Checking Statistics as strong signals for the winner.",
+      "    - Penalize debaters heavily for fabricated claims, unverified statements, or mistakes.",
+      "    - Penalize debaters who change the subject without covering opponent's counter argument.",
       "    - Reward debaters who directly dismantle the opponent's logic.",
       "    - Reward logical consistancy, clarity.",
       "3. Keep your verdict strictly to one paragraph. State the winner ",
@@ -145,6 +157,38 @@
       "",
       "Output EXACTLY ONE WORD: PASS if approved, FAIL if rejected."
     ],
-    "paper_approver_pass_word": "PASS"
+    "paper_approver_pass_word": "PASS",
+    "argument_evaluation": [
+      "You are evaluating if a new argument defeats an existing winning claim.",
+      "Opponent's Winning Claim: {winning_claim}",
+      "New Argument: {new_argument}",
+      "",
+      "Audit Result of the New Argument (if applicable):",
+      "{audit_result}",
+      "",
+      "Classify the relationship into one of these categories:",
+      "- DEFEATS_CURRENT: The new argument successfully and convincingly counters the winning claim.",
+      "- FAILS_TO_DEFEAT: The new argument is unconvincing, fabricated, or logically flawed compared to the winning claim.",
+      "- NEW_VALID_POINT: The new argument doesn't defeat the winning claim but addresses a new valid aspect.",
+      "",
+      "Provide your classification in 'category' and reasoning in 'explanation'."
+    ],
+    "check_source_requirement": [
+      "Analyze the following belief extracted from the debater's turn.",
+      "Belief: {belief}",
+      "Full Turn Transcript:\n{transcript_turn}\n",
+      "",
+      "1. Decide if this belief requires empirical backing (a reference) or if it is purely logical/opinion/moral.",
+      "2. If it requires a reference, check if the debater actually provided a source title in the text.",
+      "3. If they did provide a source, extract the exact source title and the claim they made.",
+      "",
+      "Output your findings as: requires_source, has_source, exact_source_title, claim."
+    ],
+    "filter_rhetoric": [
+      "Review the following debate topics and their winning claims.",
+      "Identify claims that are purely rhetorical, unconvincing opinions that did not require a substantive response.",
+      "Return a list of topic keys that should be filtered out from the final statistics.",
+      "Topics and Claims:\n{topics_json}"
+    ]
   }
 }

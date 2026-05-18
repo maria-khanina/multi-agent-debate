@@ -13,6 +13,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import redis
 
@@ -85,6 +86,11 @@ def get_embeddings_model() -> Embeddings:
     elif provider == "gemini":
         return GoogleGenerativeAIEmbeddings(
             model=config.get("embedding.model")
+        )
+    elif provider == "huggingface":
+        return HuggingFaceEmbeddings(
+            model_name=config.get("embedding.model"),
+            model_kwargs={'trust_remote_code': True}
         )
     raise ValueError(f"Unsupported embedding provider: {provider}")
 

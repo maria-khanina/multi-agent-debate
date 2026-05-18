@@ -5,6 +5,11 @@ from typing import Annotated, Literal, NotRequired, TypedDict
 BeliefRelationship = Literal["CONTRADICT", "REDUNDANT", "DIFFERENT_TOPIC"]
 
 
+class BeliefComparisonResult(TypedDict):
+    category: BeliefRelationship
+    explanation: str
+
+
 class Contradiction(TypedDict):
     topic_key: str
     old_stance: str
@@ -26,9 +31,44 @@ class AtomizedTurn(TypedDict):
     internal_contradictions: list[Contradiction]
 
 
-class BeliefComparisonResult(TypedDict):
-    category: BeliefRelationship
+class TopicState(TypedDict):
+    subject: str
+    pro_stance: str | None
+    against_stance: str | None
+    brought_up_by: Literal["PRO", "AGAINST"]
+    current_winner: Literal["PRO", "AGAINST"]
+    winning_claim: str
+
+
+class ArgumentResult(TypedDict):
+    category: Literal["DEFEATS_CURRENT", "FAILS_TO_DEFEAT", "NEW_VALID_POINT"]
     explanation: str
+
+
+class DebaterMistake(TypedDict):
+    topic: str
+    attempted_claim: str
+    failure_type: Literal[
+        "IRRELEVANT", 
+        "UNCONVINCING", 
+        "FABRICATED", 
+        "UNVERIFIABLE"
+    ]
+    explanation: str
+
+
+class FactCheckStats(TypedDict):
+    SUPPORTED: int
+    FABRICATED: int
+    EXAGGERATED: int
+    UNVERIFIABLE: int
+
+
+class SourceCheckResult(TypedDict):
+    requires_source: bool
+    has_source: bool
+    exact_source_title: str | None
+    claim: str | None
 
 
 class SciencePaper(TypedDict):
@@ -79,5 +119,8 @@ class DebateState(TypedDict):
     against_sources: list[str]
     pro_contradictions: Annotated[list[Contradiction], operator.add]
     against_contradictions: Annotated[list[Contradiction], operator.add]
-    cleaned_pro_contradictions: list[Contradiction]
-    cleaned_against_contradictions: list[Contradiction]
+    pro_mistakes: Annotated[list[DebaterMistake], operator.add]
+    against_mistakes: Annotated[list[DebaterMistake], operator.add]
+    pro_factcheck_stats: FactCheckStats
+    against_factcheck_stats: FactCheckStats
+    final_argument_stats: dict[str, int]

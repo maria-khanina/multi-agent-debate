@@ -12,3 +12,6 @@ pymongo==4.17.0
 pypdf==6.11.0
 redis==5.2.1
 requests==2.33.1
+langchain_huggingface
+sentence-transformers
+einops
