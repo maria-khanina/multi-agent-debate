@@ -1,12 +1,13 @@
 import json
+from typing import Any, TypedDict
 import uuid
-from typing import TypedDict
-
-from langchain_core.messages import HumanMessage
 
 from configurations.config_manager import get_chat_model, get_retriever
+from debate_settings import DEBATE_ID_CHARACTERS, LOG_INDENT, RAG_PAPER_COUNT
+from langchain_core.messages import HumanMessage
+from language_calls import ask_structured
 from openalex_search import search_papers
-from research import _process_and_store_paper
+from research import process_and_store_paper
 from tools import extract_llm_response
 
 
@@ -33,13 +34,18 @@ class ChunkUtilization(TypedDict):
     is_utilized: bool
 
 
-def evaluate_chunk_relevance(
-    motion: str,
-    stance: str,
-    goal: str,
-    chunk: str,
-) -> float:
-    language_model = get_chat_model("judge").with_structured_output(ChunkScore)
+class ChunkTotals(TypedDict):
+    chunks: int
+    relevance: float
+    utilized: int
+
+
+class ClaimTotals(TypedDict):
+    claims: int
+    supported: int
+
+
+def evaluate_chunk_relevance(motion: str, stance: str, goal: str, chunk: str) -> float:
     prompt_text = (
         f"Debator participates in debate with motion {motion} and stance: {stance}\n"
         f"Right now debator has a goal: {goal}\n"
@@ -53,45 +59,31 @@ def evaluate_chunk_relevance(
         "- 0.0: The chunk is completely irrelevant to the goal, or it "
         "provides information that supports the opposing stance."
     )
-    response = language_model.invoke([HumanMessage(content=prompt_text)])
+    response = ask_structured("judge", ChunkScore, prompt_text)
     return float(response.get("score", 0.0))
 
 
-def evaluate_chunk_utilization(
-    output_text: str,
-    chunk_text: str,
-) -> bool:
-    expected_output = ChunkUtilization
-    language_model = get_chat_model("judge").with_structured_output(
-        expected_output
-    )
+def evaluate_chunk_utilization(output_text: str, chunk_text: str) -> bool:
     prompt_text = (
         f"Output:\n{output_text}\n\n"
         f"Chunk:\n{chunk_text}\n\n"
         "Does the output explicitly use empirical information from "
         "this specific chunk?"
     )
-    response = language_model.invoke([HumanMessage(content=prompt_text)])
+    response = ask_structured("judge", ChunkUtilization, prompt_text)
     return response.get("is_utilized", False)
 
 
 def extract_claims(text: str) -> list[str]:
-    language_model = get_chat_model("judge").with_structured_output(
-        AtomicClaims
-    )
     prompt_text = (
         "Extract atomic, empirically verifiable claims from:\n"
         f"{text}\n\n"
         "Ignore rhetoric and transition words."
     )
-    response = language_model.invoke([HumanMessage(content=prompt_text)])
-    return response.get("claims", [])
+    return ask_structured("judge", AtomicClaims, prompt_text).get("claims", [])
 
 
 def verify_claim(claim: str, chunks: list[str]) -> bool:
-    language_model = get_chat_model("judge").with_structured_output(
-        ClaimSupport
-    )
     context_text = "\n".join(chunks)
     prompt_text = (
         f"Context:\n{context_text}\n\n"
@@ -99,12 +91,10 @@ def verify_claim(claim: str, chunks: list[str]) -> bool:
         "Is this claim strictly backed by the context without "
         "any exaggeration?"
     )
-    response = language_model.invoke([HumanMessage(content=prompt_text)])
-    return response.get("is_supported", False)
+    return ask_structured("judge", ClaimSupport, prompt_text).get("is_supported", False)
 
 
 def generate_rag_output(goal: str, chunks: list[str]) -> str:
-    language_model = get_chat_model("debater")
     context_text = "\n".join(chunks)
     prompt_text = (
         f"Goal: {goal}\n\n"
@@ -112,18 +102,13 @@ def generate_rag_output(goal: str, chunks: list[str]) -> str:
         "Write a short, dense argument achieving the goal using "
         "the provided Context."
     )
-    response = language_model.invoke([HumanMessage(content=prompt_text)])
+    response = get_chat_model("debater").invoke([HumanMessage(content=prompt_text)])
     return extract_llm_response(response)
 
 
-def populate_debate_database(
-    subject: str,
-    agent_role: str,
-    debate_id: str,
-) -> None:
-    papers = search_papers(subject, 10)
-    for paper in papers:
-        _process_and_store_paper(paper, agent_role, debate_id)
+def populate_debate_database(subject: str, agent_role: str, debate_id: str) -> None:
+    for paper in search_papers(subject, RAG_PAPER_COUNT):
+        process_and_store_paper(paper, agent_role, debate_id)
 
 
 def generate_evaluation_logs(
@@ -132,29 +117,41 @@ def generate_evaluation_logs(
     debate_id: str,
 ) -> list[RagLog]:
     retriever = get_retriever(agent_role, debate_id)
-    evaluation_logs = []
-
+    evaluation_logs: list[RagLog] = []
     for item in queries_and_goals:
         documents = retriever.invoke(item["query"])
-        
-        retrieved_chunks = []
-        for document in documents:
-            retrieved_chunks.append(document.page_content)
-            
-        generated_output = generate_rag_output(
-            item["goal"], 
-            retrieved_chunks
-        )
-        
-        log_entry: RagLog = {
+        retrieved_chunks: list[str] = [document.page_content for document in documents]
+        evaluation_logs.append({
             "goal": item["goal"],
             "query": item["query"],
             "chunks": retrieved_chunks,
-            "output": generated_output
-        }
-        evaluation_logs.append(log_entry)
-
+            "output": generate_rag_output(item["goal"], retrieved_chunks),
+        })
     return evaluation_logs
+
+
+def _score_chunks(log: RagLog, motion: str, stance: str, totals: ChunkTotals) -> None:
+    for chunk in log["chunks"]:
+        totals["relevance"] += evaluate_chunk_relevance(
+            motion,
+            stance,
+            log["goal"],
+            chunk,
+        )
+        if evaluate_chunk_utilization(log["output"], chunk):
+            totals["utilized"] += 1
+        totals["chunks"] += 1
+
+
+def _score_claims(log: RagLog, totals: ClaimTotals) -> None:
+    for claim in extract_claims(log["output"]):
+        if verify_claim(claim, log["chunks"]):
+            totals["supported"] += 1
+        totals["claims"] += 1
+
+
+def _divide(part: float, total: int) -> float:
+    return part / total if total > 0 else 0.0
 
 
 def calculate_rag_metrics(
@@ -162,90 +159,45 @@ def calculate_rag_metrics(
     motion: str,
     stance: str,
 ) -> dict[str, float]:
-    total_chunks = 0
-    total_relevance_score = 0.0
-    utilized_chunks = 0
-    
-    total_claims = 0
-    supported_claims = 0
-
+    chunk_totals: ChunkTotals = {"chunks": 0, "relevance": 0.0, "utilized": 0}
+    claim_totals: ClaimTotals = {"claims": 0, "supported": 0}
     for log in evaluation_logs:
-        output_text = log["output"]
-        
-        for chunk in log["chunks"]:
-            relevance_score = evaluate_chunk_relevance(
-                motion, 
-                stance, 
-                log["goal"], 
-                chunk
-            )
-            total_relevance_score += relevance_score
-            
-            is_utilized = evaluate_chunk_utilization(output_text, chunk)
-            if is_utilized:
-                utilized_chunks += 1
-                
-            total_chunks += 1
-
-        extracted_claims = extract_claims(output_text)
-        for claim in extracted_claims:
-            is_supported = verify_claim(claim, log["chunks"])
-            if is_supported:
-                supported_claims += 1
-            total_claims += 1
-
-    relevance_precision = 0.0
-    context_utilization = 0.0
-    faithfulness_ratio = 0.0
-
-    if total_chunks > 0:
-        relevance_precision = total_relevance_score / total_chunks
-        context_utilization = utilized_chunks / total_chunks
-        
-    if total_claims > 0:
-        faithfulness_ratio = supported_claims / total_claims
-
+        _score_chunks(log, motion, stance, chunk_totals)
+        _score_claims(log, claim_totals)
     return {
-        "relevance_precision": relevance_precision,
-        "context_utilization": context_utilization,
-        "faithfulness_ratio": faithfulness_ratio,
+        "relevance_precision": _divide(
+            chunk_totals["relevance"],
+            chunk_totals["chunks"],
+        ),
+        "context_utilization": _divide(
+            chunk_totals["utilized"],
+            chunk_totals["chunks"],
+        ),
+        "faithfulness_ratio": _divide(
+            claim_totals["supported"],
+            claim_totals["claims"],
+        ),
     }
 
 
 def evaluate_debate_rag(config_file_path: str) -> dict[str, float]:
     with open(config_file_path, "r", encoding="utf-8") as file_stream:
-        config_data = json.load(file_stream)
-
-    debate_subject = config_data["subject"]
-    debate_motion = config_data["motion"]
-    stance = config_data["stance"]
-    queries_and_goals = config_data["queries_and_goals"]
-
-    debate_id = str(uuid.uuid4())[:8]
+        config_data: dict[str, Any] = json.load(file_stream)
+    debate_id = str(uuid.uuid4())[:DEBATE_ID_CHARACTERS]
     agent_role = "EVAL"
-    
-    populate_debate_database(
-        debate_subject, 
-        agent_role, 
-        debate_id
-    )
-
+    populate_debate_database(config_data["subject"], agent_role, debate_id)
     evaluation_logs = generate_evaluation_logs(
-        queries_and_goals,
+        config_data["queries_and_goals"],
         agent_role,
-        debate_id
+        debate_id,
     )
-
     with open("rag_eval_logs.json", "w", encoding="utf-8") as log_file:
-        json.dump(evaluation_logs, log_file, indent=4)
-
-    metrics_report = calculate_rag_metrics(
-        evaluation_logs, 
-        debate_motion, 
-        stance
+        json.dump(evaluation_logs, log_file, indent=LOG_INDENT)
+    return calculate_rag_metrics(
+        evaluation_logs,
+        config_data["motion"],
+        config_data["stance"],
     )
-
-    return metrics_report
 
 
 if __name__ == "__main__":

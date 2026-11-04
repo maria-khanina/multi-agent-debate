@@ -1,154 +1,127 @@
 import io
-from typing import Literal
+from typing import cast
 
-import requests
+from configurations.config_manager import config, get_chat_model, get_retriever
+from debate_settings import REQUEST_TIMEOUT_SECONDS, TITLE_PREVIEW_CHARACTERS
+from entities import ApprovalResult, ResearcherState, SciencePaper, SearchResult
+from graph_types import RunnableGraph
 from langchain_core.documents import Document
 from langgraph.graph import END, StateGraph
-from pypdf import PdfReader
-
-from configurations.config_manager import config, get_chat_model, \
-    get_retriever
-from entities import ResearcherState, SciencePaper, SearchResult
 from openalex_search import search_papers
+from pypdf import PdfReader
+import requests
 from tools import extract_llm_response
 
 
 def search_node(state: ResearcherState) -> SearchResult:
-    query = state.get("query", "")
-    papers_per_search = config.get("search.papers_per_search")
-    new_papers = search_papers(query, papers_per_search)
-    return {"raw_papers": new_papers}
+    papers_per_search = config.read_integer("search.papers_per_search")
+    return {"raw_papers": search_papers(state["query"], papers_per_search)}
 
 
 def _cut_middle(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
-        
     half_limit = limit // 2
-    head = text[:half_limit]
-    tail = text[-half_limit:]
-    
-    return f"{head}\n\n...\n\n{tail}"
+    return f"{text[:half_limit]}\n\n...\n\n{text[-half_limit:]}"
 
 
 def _build_approval_prompt(paper: SciencePaper, motion: str) -> str:
-    affiliations_str = ", ".join(paper.get("affiliations", []))
-    prompt_template = config.get("prompts.paper_approver_prompt")
-    limit = config.get("embedding.truncation_length")
-    abstract = paper.get("abstract", "")
-    
+    prompt_template = config.read_text("prompts.paper_approver_prompt")
+    limit = config.read_integer("embedding.truncation_length")
     return prompt_template.format(
         motion=motion,
-        title=paper.get("title"),
-        year=paper.get("year"),
-        citations=paper.get("citations"),
-        affiliations=affiliations_str,
-        abstract=_cut_middle(abstract, limit),
+        title=paper["title"],
+        year=paper["year"],
+        citations=paper["citations"],
+        affiliations=", ".join(paper["affiliations"]),
+        abstract=_cut_middle(paper["abstract"], limit),
     )
 
 
 def approve_paper(paper: SciencePaper, motion: str) -> bool:
-    if paper is None:
-        return False
-
     prompt = _build_approval_prompt(paper, motion)
-    llm = get_chat_model("approver")
-    raw_response = llm.invoke(prompt)
+    raw_response = get_chat_model("approver").invoke(prompt)
     verdict = extract_llm_response(raw_response)
-    
-    print(f"[Approver] '{paper['title'][:30]}...' -> {verdict}")
-    
-    pass_word = config.get("prompts.paper_approver_pass_word")
+    print(f"[Approver] '{paper['title'][:TITLE_PREVIEW_CHARACTERS]}...' -> {verdict}")
+    pass_word = config.read_text("prompts.paper_approver_pass_word")
     return pass_word in verdict.upper()
+
+
+def _download_pdf(url: str) -> bytes:
+    print(f"[PDF] Downloading {url}...")
+    response = requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    if "application/pdf" not in response.headers.get("Content-Type", ""):
+        return b""
+    return response.content
+
+
+def _read_pdf_text(content: bytes) -> str:
+    if not content:
+        return ""
+    reader = PdfReader(io.BytesIO(content))
+    pages: list[str] = [page.extract_text() for page in reader.pages]
+    return "".join(f"{page}\n" for page in pages if page)
 
 
 def extract_text_from_pdf(url: str) -> str:
     try:
-        print(f"[PDF] Downloading {url}...")
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        
-        content_type = response.headers.get("Content-Type", "")
-        if "application/pdf" not in content_type:
-            return ""
-            
-        pdf_file = io.BytesIO(response.content)
-        reader = PdfReader(pdf_file)
-        text = ""
-        for page in reader.pages:
-            extracted = page.extract_text()
-            if extracted:
-                text += extracted + "\n"
-        return text
-    except Exception as e:
-        print(f"[PDF Error] Failed to extract text: {e}")
+        return _read_pdf_text(_download_pdf(url))
+    except Exception as error:
+        print(f"[PDF Error] Failed to extract text: {error}")
         return ""
 
 
-def _process_and_store_paper(
-    paper_data: SciencePaper,
+def _choose_content(paper: SciencePaper) -> tuple[str, str]:
+    pdf_url = paper["pdf_url"]
+    full_text = extract_text_from_pdf(pdf_url) if pdf_url else ""
+    title = paper["title"][:TITLE_PREVIEW_CHARACTERS]
+    if full_text.strip():
+        print(f"[Database] Saved full PDF for '{title}...'")
+        return full_text, "pdf"
+    print(f"[Database] Saved abstract for '{title}...'")
+    return paper["abstract"], "abstract"
+
+
+def process_and_store_paper(
+    paper: SciencePaper,
     agent_role: str,
     debate_id: str,
 ) -> None:
-    title = str(paper_data.get("title", ""))
-    pdf_url = paper_data.get("pdf_url")
-    abstract = str(paper_data.get("abstract", ""))
-    
-    full_text = ""
-    if pdf_url:
-        full_text = extract_text_from_pdf(pdf_url)
-        
-    if full_text.strip():
-        content = full_text
-        print(f"[Database] Saved full PDF for '{title[:30]}...'")
-    else:
-        content = abstract
-        print(f"[Database] Saved abstract for '{title[:30]}...'")
-        
+    content, source = _choose_content(paper)
     if not content.strip():
-        return None
-
-    doc = Document(
+        return
+    document = Document(
         page_content=content,
-        metadata={
-            "title": title,
-            "source": "pdf" if full_text.strip() else "abstract",
-        },
+        metadata={"title": paper["title"], "source": source},
     )
-    retriever = get_retriever(agent_role, debate_id)
-    retriever.add_documents([doc])
+    get_retriever(agent_role, debate_id).add_documents([document])
 
 
-def approve_node(
+def _approve_new_paper(
+    paper: SciencePaper,
     state: ResearcherState,
-) -> dict[Literal["approved_papers"], list[SciencePaper]]:
-    raw_papers = state.get("raw_papers", [])
+    approved_papers: list[SciencePaper],
+    existing_titles: set[str],
+) -> None:
+    if paper["title"] in existing_titles:
+        return
+    if approve_paper(paper, state["motion"]):
+        approved_papers.append(paper.copy())
+        existing_titles.add(paper["title"])
+        process_and_store_paper(paper, state["agent_role"], state["debate_id"])
+
+
+def approve_node(state: ResearcherState) -> ApprovalResult:
     approved_papers = state.get("approved_papers", [])
-    agent_role = state.get("agent_role", "default")
-    max_knowledge_base = config.get("search.max_knowledge_base", 2)
-    
-    existing_titles = set()
-    for paper in approved_papers:
-        if paper.get("title"):
-            existing_titles.add(paper["title"])
-    
-    for paper in raw_papers:
-        title = paper.get("title")
-        if title and title in existing_titles:
-            continue
-            
-        if approve_paper(paper, state["motion"]):
-            approved_papers.append(dict(paper))
-            existing_titles.add(title)
-            _process_and_store_paper(
-                paper, 
-                agent_role, 
-                state["debate_id"],
-            )
-        
+    max_knowledge_base = config.read_integer("search.max_knowledge_base")
+    existing_titles: set[str] = {
+        paper["title"] for paper in approved_papers if paper["title"]
+    }
+    for paper in state.get("raw_papers", []):
+        _approve_new_paper(paper, state, approved_papers, existing_titles)
         if len(approved_papers) >= max_knowledge_base:
             break
-            
     return {"approved_papers": approved_papers}
 
 
@@ -160,4 +133,4 @@ research_workflow.set_entry_point("search_node")
 research_workflow.add_edge("search_node", "approve_node")
 research_workflow.add_edge("approve_node", END)
 
-research_app = research_workflow.compile()
+research_app = cast(RunnableGraph[ResearcherState], research_workflow.compile())

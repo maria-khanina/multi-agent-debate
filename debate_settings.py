@@ -1,0 +1,15 @@
+CONFIGURATION_NAME = "reasoning_gemini_llm"
+CONFIGURATION_DIRECTORY = "configurations"
+BACKOFF_ATTEMPTS = 5
+BACKOFF_BASE_SECONDS = 2
+REQUEST_TIMEOUT_SECONDS = 10
+TITLE_PREVIEW_CHARACTERS = 30
+SIMILAR_TOPIC_COUNT = 4
+RAG_PAPER_COUNT = 10
+DEBATE_ID_CHARACTERS = 8
+LOG_INDENT = 4
+CHILD_PREVIEW_CHARACTERS = 200
+PARENT_PREVIEW_CHARACTERS = 300
+SEPARATOR = "=================================================="
+OPENALEX_URL = "https://api.openalex.org/works"
+GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"

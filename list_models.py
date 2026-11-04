@@ -1,5 +1,18 @@
 import os
+from typing import Any
+
+from debate_settings import GEMINI_MODELS_URL, REQUEST_TIMEOUT_SECONDS
 import requests
+
+
+def _request_models(api_key: str) -> list[dict[str, Any]]:
+    response = requests.get(
+        GEMINI_MODELS_URL,
+        params={"key": api_key},
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    return response.json().get("models", [])
 
 
 def list_available_models() -> None:
@@ -7,15 +20,7 @@ def list_available_models() -> None:
     if not api_key:
         print("Error: GOOGLE_API_KEY is not set.")
         return
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-    
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()
-    
-    data = response.json()
-    models = data.get("models", [])
-    
+    models = _request_models(api_key)
     print("---Available Models---")
     for model in models:
         if "generateContent" in model.get("supportedGenerationMethods", []):
