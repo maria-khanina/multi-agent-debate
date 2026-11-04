@@ -1,0 +1,4 @@
+__pycache__/
+debate_vectors/
+.env
+.venv/

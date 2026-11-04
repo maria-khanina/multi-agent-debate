@@ -1,0 +1,8 @@
+{
+  "typeCheckingMode": "standard",
+  "pythonVersion": "3.11",
+  "reportMissingParameterType": "error",
+  "reportMissingTypeArgument": "error",
+  "venvPath": ".",
+  "venv": ".venv"
+}

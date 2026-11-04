@@ -12,4 +12,4 @@ RUN pip install --no-cache-dir --default-timeout=1000 -r requirements.txt
 
 COPY . .
 
-CMD ["python", "debate.py"]
+CMD ["python", "-m", "tests.test_debate_graph"]
