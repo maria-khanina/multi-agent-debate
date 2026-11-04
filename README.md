@@ -51,4 +51,8 @@ docker compose up -d                 # Redis and the application container
 docker compose exec debate-app python -m tests.test_debate_graph
 ```
 
-`tests/test_debate_graph.py` runs a two-turn debate and prints every node of the graph as it executes; the other files in `tests/` exercise the chunking, the research step and the judge's consistency tools on their own.
+`tests/test_debate_graph.py` runs a two-turn debate and prints every node of the graph as it executes; `tests.test_chunking`, `tests.test_research` and `tests.test_judge_tools` run the parent-child chunking of a sample paper, one research step and the judge's contradiction check on two prepared cases, each as `python -m tests.<name>` from the project root.
+
+## Code quality
+
+The code is checked with `python -m pycodestyle --max-line-length=88 .`, `python -m pyright` (strict, with a local stub for `langgraph.graph` in `typings/`) and the AST checker [tools/rules_check.py](tools/rules_check.py) (`python tools/rules_check.py .`): at most 10 statements per function, no magic numbers outside `debate_settings.py`, type hints on containers, no abbreviations or single-letter names, no default parameter values, ordered imports. The settings of a debate (models, prompts, chunk sizes, search limits) live in `configurations/*.json`, the fixed numbers of the code in `debate_settings.py`.

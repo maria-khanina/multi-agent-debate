@@ -45,7 +45,8 @@
     "against_stance": "AGAINST"
   },
   "database": {
-    "path": "./debate_vectors"
+    "path": "./debate_vectors",
+    "redis_url": "redis://localhost:6379/0"
   },
   "evidence": {
     "chunks_to_extract": 3

@@ -1,19 +1,17 @@
-from langchain_core.messages import AIMessage, BaseMessage, \
-    HumanMessage, ToolMessage
+from typing import cast
 
 from configurations.config_manager import config, get_chat_model
+from entities import DebateState, ResearcherState, SciencePaper
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from research import research_app
-from entities import DebateState, SciencePaper
 from tools import create_evidence_tool, extract_llm_response
 
 
 def _build_research_prompt(agent_role: str, motion: str) -> str:
-    template = config.get("prompts.research_init")
-    max_tries = config.get("search.max_tries")
-    return template.format(
+    return config.read_text("prompts.research_init").format(
         motion=motion,
         stance=agent_role,
-        max_tries=max_tries,
+        max_tries=config.read_integer("search.max_tries"),
     )
 
 
@@ -22,51 +20,52 @@ def _run_search_attempt(
     agent_role: str,
     messages: list[BaseMessage],
     motion: str,
-    current_approved: list[dict],
+    current_approved: list[SciencePaper],
 ) -> tuple[str, list[SciencePaper]]:
-    llm = get_chat_model("researcher")
-    raw_response = llm.invoke(messages)
+    raw_response = get_chat_model("researcher").invoke(messages)
     query = extract_llm_response(raw_response)
-
     print(f"\n[Researcher {agent_role}] Formulated query: '{query}'")
-
-    search_result = research_app.invoke({
+    initial_state: ResearcherState = {
         "debate_id": debate_id,
         "motion": motion,
         "query": query,
         "agent_role": agent_role,
         "raw_papers": [],
         "approved_papers": current_approved,
-    })
-
+    }
+    search_result = cast(ResearcherState, research_app.invoke(initial_state))
     return query, search_result.get("approved_papers", [])
 
 
-def _extract_approved_titles(
-    current_approved_papers: list[SciencePaper],
-) -> list[str]:
-    return [
-        paper["title"] 
-        for paper in current_approved_papers 
-        if paper.get("title")
-    ]
+def _extract_approved_titles(current_approved_papers: list[SciencePaper]) -> list[str]:
+    return [paper["title"] for paper in current_approved_papers if paper["title"]]
 
 
 def _update_messages(
     messages: list[BaseMessage],
     query: str,
     current_approved_papers: list[SciencePaper],
-    max_tries: int,
-    attempt: int,
+    attempts_left: int,
 ) -> None:
-    messages.append(AIMessage(content=query))   
+    messages.append(AIMessage(content=query))
     approved_titles = _extract_approved_titles(current_approved_papers)
-    titles_str = "\n".join(approved_titles) or "None"
-    next_prompt = config.get("prompts.research_middle").format(
-        attempts_left=max_tries - attempt - 1,
-        approved_titles=titles_str,
+    next_prompt = config.read_text("prompts.research_middle").format(
+        attempts_left=attempts_left,
+        approved_titles="\n".join(approved_titles) or "None",
     )
     messages.append(HumanMessage(content=next_prompt))
+
+
+def _has_enough_papers(
+    agent_role: str,
+    approved_papers: list[SciencePaper],
+    max_knowledge_base: int,
+) -> bool:
+    print(
+        f"[Researcher {agent_role}] Approved papers so far: "
+        f"{len(approved_papers)} / {max_knowledge_base}"
+    )
+    return len(approved_papers) >= max_knowledge_base
 
 
 def _run_research_loop(
@@ -75,62 +74,39 @@ def _run_research_loop(
     messages: list[BaseMessage],
     motion: str,
 ) -> list[str]:
-    max_tries = config.get("search.max_tries")
-    max_knowedge_base = config.get("search.max_knowledge_base")
-    current_approved_papers = []
-
+    max_tries = config.read_integer("search.max_tries")
+    max_knowledge_base = config.read_integer("search.max_knowledge_base")
+    approved_papers: list[SciencePaper] = []
     print(f"\n--- Starting Research Phase for {agent_role} ---")
-
     for attempt in range(max_tries):
-        query, current_approved_papers = _run_search_attempt(
+        query, approved_papers = _run_search_attempt(
             debate_id,
             agent_role,
             messages,
             motion,
-            current_approved_papers,
+            approved_papers,
         )
-        
-        print(
-            f"[Researcher {agent_role}] Approved papers so far: "
-            f"{len(current_approved_papers)} / {max_knowedge_base}"
-        )
-        
-        if len(current_approved_papers) >= max_knowedge_base:
+        if _has_enough_papers(agent_role, approved_papers, max_knowledge_base):
             break
-            
-        _update_messages(
-            messages,
-            query,
-            current_approved_papers,
-            max_tries,
-            attempt,
-        )
-
-    return _extract_approved_titles(current_approved_papers)
+        _update_messages(messages, query, approved_papers, max_tries - attempt - 1)
+    return _extract_approved_titles(approved_papers)
 
 
-def execute_researcher(
-    debate_id: str,
-    agent_role: str,
-    motion: str,
-) -> list[str]:
+def execute_researcher(debate_id: str, agent_role: str, motion: str) -> list[str]:
     prompt = _build_research_prompt(agent_role, motion)
-    messages = [HumanMessage(content=prompt)]
+    messages: list[BaseMessage] = [HumanMessage(content=prompt)]
     return _run_research_loop(debate_id, agent_role, messages, motion)
 
 
-def _build_debater_messages(
-    agent_role: str,
-    state: DebateState,
-) -> list[BaseMessage]:
-    history = "\n".join(state.get("transcript", []))
+def _build_debater_messages(agent_role: str, state: DebateState) -> list[BaseMessage]:
+    history = "\n".join(state["transcript"])
     if not history:
-        content = config.get("prompts.opening").format(
+        content = config.read_text("prompts.opening").format(
             motion=state["motion"],
             stance=agent_role,
         )
     else:
-        content = config.get("prompts.debator").format(
+        content = config.read_text("prompts.debator").format(
             motion=state["motion"],
             stance=agent_role,
             transcript=history,
@@ -143,22 +119,18 @@ def _run_tool_loop(
     agent_role: str,
     messages: list[BaseMessage],
 ) -> str:
-    llm = get_chat_model("debater")
     evidence_tool = create_evidence_tool(agent_role, debate_id)
-    llm_with_tools = llm.bind_tools([evidence_tool])
-
+    model_with_tools = get_chat_model("debater").bind_tools([evidence_tool])
     while True:
-        raw_response = llm_with_tools.invoke(messages)
+        raw_response = model_with_tools.invoke(messages)
         messages.append(raw_response)
-
         if not raw_response.tool_calls:
             return extract_llm_response(raw_response)
-
         for tool_call in raw_response.tool_calls:
             result = evidence_tool.invoke(tool_call)
             messages.append(ToolMessage(
                 content=str(result),
-                tool_call_id=tool_call["id"],
+                tool_call_id=tool_call["id"] or "",
             ))
 
 
@@ -168,7 +140,6 @@ def execute_debater(agent_role: str, state: DebateState) -> str:
 
 
 def generate_debater_response(state: DebateState, stance_key: str) -> str:
-    stance = config.get(stance_key)
+    stance = config.read_text(stance_key)
     entry = execute_debater(stance, state)
-    turn = state.get("turn_count", 0)
-    return f"[Turn {turn}] {stance}: {entry}"
+    return f"[Turn {state['turn_count']}] {stance}: {entry}"

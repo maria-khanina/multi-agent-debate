@@ -1,8 +1,9 @@
 import operator
 from typing import Annotated, Literal, NotRequired, TypedDict
 
-
 BeliefRelationship = Literal["CONTRADICT", "REDUNDANT", "DIFFERENT_TOPIC"]
+Side = Literal["PRO", "AGAINST"]
+FactCheckVerdict = Literal["SUPPORTED", "FABRICATED", "EXAGGERATED", "UNVERIFIABLE"]
 
 
 class BeliefComparisonResult(TypedDict):
@@ -35,8 +36,8 @@ class TopicState(TypedDict):
     subject: str
     pro_stance: str | None
     against_stance: str | None
-    brought_up_by: Literal["PRO", "AGAINST"]
-    current_winner: Literal["PRO", "AGAINST"]
+    brought_up_by: Side
+    current_winner: Side
     winning_claim: str
 
 
@@ -48,12 +49,7 @@ class ArgumentResult(TypedDict):
 class DebaterMistake(TypedDict):
     topic: str
     attempted_claim: str
-    failure_type: Literal[
-        "IRRELEVANT", 
-        "UNCONVINCING", 
-        "FABRICATED", 
-        "UNVERIFIABLE"
-    ]
+    failure_type: Literal["IRRELEVANT", "UNCONVINCING", "FABRICATED", "UNVERIFIABLE"]
     explanation: str
 
 
@@ -93,6 +89,10 @@ class SearchResult(TypedDict):
     raw_papers: list[SciencePaper]
 
 
+class ApprovalResult(TypedDict):
+    approved_papers: list[SciencePaper]
+
+
 class Evidence(TypedDict):
     title: str
     content: str
@@ -100,12 +100,7 @@ class Evidence(TypedDict):
 
 
 class AuditResult(TypedDict):
-    verdict: Literal[
-        "SUPPORTED", 
-        "FABRICATED", 
-        "EXAGGERATED", 
-        "UNVERIFIABLE"
-    ]
+    verdict: FactCheckVerdict
     reasoning: str
 
 

@@ -1,0 +1,14 @@
+[
+  {
+    "name": "CONSISTENT DATA",
+    "topic": "nuclear power viability",
+    "old_stance": "Nuclear power is the only viable zero-emission baseload energy source capable of replacing fossil fuels at scale without geographic constraints.",
+    "new_stance": "While initial capital costs are high, the exceptional energy density and 60-year operational lifespans of nuclear plants mathematically offset these early expenses."
+  },
+  {
+    "name": "INCONSISTENT DATA",
+    "topic": "role of nuclear power",
+    "old_stance": "Nuclear power must be the permanent backbone of our energy grid because intermittent sources like wind and solar rely on unproven, highly degraded grid-scale battery storage.",
+    "new_stance": "Nuclear plants are indeed centralized, which is exactly why they should merely serve as a temporary bridge until our grid-scale battery infrastructure is fully matured for a 100% renewable grid."
+  }
+]
