@@ -12,7 +12,19 @@ ABBREVIATIONS = {
 }
 STDLIB = set(sys.stdlib_module_names)
 MAX_STATEMENTS = 10
-CONFIG_FILE_NAMES = {"generation_settings.py", "review_settings.py", "cv_settings.py", "job_settings.py", "hook_settings.py", "debate_settings.py"}
+CONFIG_FILE_SUFFIX = "_settings.py"
+
+
+def find_project_packages(root):
+    root = root.resolve()
+    bases = [root, root.parent, root / "src", root.parent / "src"]
+    packages = {marker.parent.name for base in bases for marker in base.glob("*/__init__.py")}
+    if (root / "__init__.py").exists():
+        packages.add(root.resolve().name)
+    return packages
+
+
+PROJECT_PACKAGES = find_project_packages(ROOT)
 
 
 def count_statements(node: ast.AST) -> int:
@@ -65,7 +77,7 @@ def check_defaults(path, tree, report):
 
 
 def check_numbers(path, tree, report):
-    if path.name in CONFIG_FILE_NAMES:
+    if path.name.endswith(CONFIG_FILE_SUFFIX):
         return
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
@@ -79,7 +91,7 @@ def module_group(name):
     root = name.split(".")[0]
     if root in STDLIB:
         return 0
-    if root in {"secreview", "cvkit"}:
+    if root in PROJECT_PACKAGES:
         return 2
     return 1
 
